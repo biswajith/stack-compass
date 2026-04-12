@@ -236,17 +236,42 @@ Fully offline: Falls back to thin built-in summaries
 ```
 stack-compass/
 ├── src/
-│   ├── index.ts          # Entry point — stdio transport
-│   ├── server.ts         # MCP server factory — all 11 tools
-│   ├── analyzer.ts       # Project scanner — version extraction from build files
-│   ├── doc-fetcher.ts    # Dynamic fetch → convert → parse → cache pipeline
-│   ├── disk-cache.ts     # ~/.stack-compass/cache/ with 7-day TTL
-│   ├── tree-builder.ts   # Markdown → heading tree → DocSection[]
-│   ├── types.ts          # Types, version resolution, framework registry (metadata only)
-│   └── version.ts        # Single source of truth for app name/version
+│   ├── index.ts                    # Entry point — stdio transport
+│   ├── version.ts                  # App name/version from package.json
+│   ├── types/
+│   │   ├── index.ts                # Interfaces — DetectedFramework, DocSection, ProjectStack, etc.
+│   │   └── registry.ts             # FRAMEWORK_DOCS constant, resolveFrameworkMeta, parseMajor
+│   ├── cache/
+│   │   ├── index.ts                # Re-exports
+│   │   ├── disk-cache.ts           # ~/.stack-compass/cache/ with 7-day TTL
+│   │   └── memory-cache.ts         # In-memory TTL cache (30 min)
+│   ├── tree-builder/
+│   │   └── index.ts                # Markdown → heading tree → DocSection[]
+│   ├── fetcher/
+│   │   ├── index.ts                # DocFetcher class — orchestrates the pipeline
+│   │   ├── url-fetcher.ts          # HTTP fetch + truncation
+│   │   ├── html-converter.ts       # Turndown HTML → Markdown
+│   │   ├── github-fetcher.ts       # GitHub README (main/master/API fallback)
+│   │   └── offline-fallback.ts     # Static blurbs when offline
+│   ├── analyzer/
+│   │   ├── index.ts                # ProjectAnalyzer class
+│   │   ├── pom-parser.ts           # Maven pom.xml → DetectedFramework[]
+│   │   ├── gradle-parser.ts        # Gradle build files → DetectedFramework[]
+│   │   ├── sbt-parser.ts           # SBT build.sbt → DetectedFramework[]
+│   │   ├── package-json-parser.ts  # npm/yarn package.json → DetectedFramework[]
+│   │   ├── infra-detector.ts       # Docker, K8s, Helm, GraphQL detection
+│   │   └── helpers.ts              # Shared utilities (cleanVersion)
+│   └── server/
+│       ├── index.ts                # createServer() factory
+│       ├── context.ts              # ServerContext type + findDetectedVersion
+│       ├── formatters.ts           # formatNeedsUrl, formatTreeIndex
+│       ├── analysis-tools.ts       # analyze-project, configure-monorepo, get-project-stack, list-detected
+│       ├── doc-tools.ts            # get-doc-index, get-doc-section, fetch-external-docs
+│       ├── resolve-tools.ts        # resolve-doc-url
+│       └── framework-tools.ts      # add-framework, remove-framework, list-all-supported
 ├── tests/
-│   ├── helpers.ts        # Shared setup, assertions, mock LLM, searchAllSections
-│   ├── run-all.ts        # Test runner entry point
+│   ├── helpers.ts                  # Shared setup, assertions, mock LLM (dynamic URL derivation)
+│   ├── run-all.ts                  # Test runner entry point
 │   ├── unit/
 │   │   ├── tree-builder.test.ts
 │   │   └── disk-cache.test.ts
