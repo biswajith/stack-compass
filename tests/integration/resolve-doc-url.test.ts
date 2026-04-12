@@ -48,14 +48,21 @@ export async function testResolveDocUrl() {
   }}));
   assertIncludes('spring-boot: has sections', sbIdx, 'Documentation Sections');
 
-  // Bad URL should handle gracefully
-  console.log('  Testing invalid URL...');
+  // Blocked domain should be rejected
+  console.log('  Testing blocked domain...');
+  const blocked = getText(await client.callTool({ name: 'resolve-doc-url', arguments: {
+    framework: 'graphql',
+    url: 'https://evil.com/steal-data',
+  }}));
+  assertIncludes('Blocked domain: rejected', blocked, 'not in the allowlist');
+
+  // Allowed domain that 404s should handle gracefully
+  console.log('  Testing 404 on allowed domain...');
   const bad = getText(await client.callTool({ name: 'resolve-doc-url', arguments: {
     framework: 'graphql',
-    url: 'https://this-does-not-exist.example.com/404',
+    url: 'https://github.com/this-does-not-exist-at-all-ever/nope',
   }}));
-  // Should still succeed (server attempts fetch, may get 0 sections)
-  assertIncludes('Bad URL: still completes', bad, 'Documentation indexed');
+  assertIncludes('Bad path on allowed domain: still completes', bad, 'Documentation indexed');
 
   await client.close();
 }

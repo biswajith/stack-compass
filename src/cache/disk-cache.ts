@@ -28,12 +28,25 @@ export function readCache(framework: string, version: string, section: string, t
   return null;
 }
 
-export function writeCache(framework: string, version: string, section: string, content: string): void {
+/**
+ * Writes content to disk cache atomically (write tmp then rename).
+ * Returns true on success, false on failure (disk full, permission error, etc.).
+ */
+export function writeCache(framework: string, version: string, section: string, content: string): boolean {
   const p = entryPath(framework, version, section);
   const dir = path.dirname(p);
-  fs.mkdirSync(dir, { recursive: true });
-  const entry: CacheEntry = { content, fetchedAt: Date.now() };
-  fs.writeFileSync(p, JSON.stringify(entry), 'utf-8');
+  const tmp = p + '.tmp.' + process.pid;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const entry: CacheEntry = { content, fetchedAt: Date.now() };
+    fs.writeFileSync(tmp, JSON.stringify(entry), 'utf-8');
+    fs.renameSync(tmp, p);
+    return true;
+  } catch (err) {
+    console.warn(`[stack-compass] cache write failed for ${sanitize(framework)}/${sanitize(section)}: ${err instanceof Error ? err.message : String(err)}`);
+    try { fs.unlinkSync(tmp); } catch { /* cleanup best-effort */ }
+    return false;
+  }
 }
 
 export function invalidateFrameworkCache(framework: string): void {

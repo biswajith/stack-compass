@@ -16,7 +16,8 @@ export function extractMavenProperties(xml: string): Record<string, string> {
 }
 
 export function extractVersionFromDependencyBlock(xml: string, artifactPattern: RegExp): string | undefined {
-  const depBlocks = xml.match(/<dependency>[\s\S]*?<\/dependency>/g) || [];
+  const cleaned = xml.replace(/<dependencyManagement>[\s\S]*?<\/dependencyManagement>/g, '');
+  const depBlocks = cleaned.match(/<dependency>[\s\S]*?<\/dependency>/g) || [];
   for (const block of depBlocks) {
     if (artifactPattern.test(block)) {
       const versionMatch = block.match(/<version>([^<$]+)<\/version>/);

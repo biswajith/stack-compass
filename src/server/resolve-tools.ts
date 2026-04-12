@@ -1,5 +1,6 @@
 import { z } from 'zod/v3';
 import { toDocSections } from '../tree-builder/index.js';
+import { isAllowedUrl } from '../fetcher/url-fetcher.js';
 import { ServerContext, findDetectedVersion } from './context.js';
 import { formatTreeIndex } from './formatters.js';
 
@@ -13,6 +14,10 @@ export function registerResolveTools(ctx: ServerContext): void {
       version: z.string().optional().describe('Framework version if applicable'),
     },
     async ({ framework, url, version }) => {
+      if (!isAllowedUrl(url)) {
+        return { content: [{ type: 'text' as const, text: `Rejected: URL domain is not in the allowlist. Only known documentation hosts (GitHub, official framework sites) are permitted. For internal/private documentation, check the source into the monorepo and use scan-internal-source instead.` }], isError: true };
+      }
+
       const effectiveVersion = version ?? findDetectedVersion(ctx, framework);
 
       try {

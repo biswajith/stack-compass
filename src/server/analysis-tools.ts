@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { z } from 'zod/v3';
 import { ProjectAnalyzer } from '../analyzer/index.js';
 import { ServerContext } from './context.js';
@@ -11,11 +13,16 @@ export function registerAnalysisTools(ctx: ServerContext): void {
     },
     async ({ projectPath }) => {
       try {
-        const analyzer = new ProjectAnalyzer(projectPath);
+        let resolvedPath: string;
+        try { resolvedPath = fs.realpathSync(path.resolve(projectPath)); }
+        catch { resolvedPath = path.resolve(projectPath); }
+
+        const analyzer = new ProjectAnalyzer(resolvedPath);
         if (ctx.currentConfig) analyzer.setConfig(ctx.currentConfig);
         ctx.currentStack = await analyzer.analyze();
 
-        let r = `# Project Analysis: ${projectPath}\n\n`;
+        const displayName = path.basename(resolvedPath);
+        let r = `# Project Analysis: ${displayName}\n\n`;
 
         if (ctx.currentStack.modules.length === 0) {
           r += 'No modules detected. If this is a monorepo, call `configure-monorepo` first.\n';
@@ -68,17 +75,25 @@ export function registerAnalysisTools(ctx: ServerContext): void {
     async ({ structure }) => {
       try {
         const parsed = JSON.parse(structure);
-        ctx.currentConfig = { structure: parsed };
+
+        const moduleSchema = z.object({
+          path: z.string(),
+          type: z.enum(['frontend', 'backend', 'service', 'shared', 'infra', 'unknown']),
+          description: z.string().optional(),
+        });
+        const structureSchema = z.record(z.string(), moduleSchema);
+        const validated = structureSchema.parse(parsed);
+
+        ctx.currentConfig = { structure: validated };
 
         let r = '# Monorepo Configuration Saved\n\n';
-        for (const [name, config] of Object.entries(parsed)) {
-          const cfg = config as { path: string; type: string; description?: string };
+        for (const [name, cfg] of Object.entries(validated)) {
           r += `- **${name}**: \`${cfg.path}\` (${cfg.type})${cfg.description ? ` — ${cfg.description}` : ''}\n`;
         }
         r += '\nNow call `analyze-project` with the project root path.\n';
         return { content: [{ type: 'text' as const, text: r }] };
       } catch (error) {
-        return { content: [{ type: 'text' as const, text: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+        return { content: [{ type: 'text' as const, text: `Invalid structure: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
       }
     }
   );
@@ -92,7 +107,8 @@ export function registerAnalysisTools(ctx: ServerContext): void {
         return { content: [{ type: 'text' as const, text: 'No project analyzed yet. Call `analyze-project` first.' }] };
       }
 
-      let r = `# Project Stack: ${ctx.currentStack.rootPath}\n\n## Architecture\n\n\`\`\`\n`;
+      const displayName = path.basename(ctx.currentStack.rootPath);
+      let r = `# Project Stack: ${displayName}\n\n## Architecture\n\n\`\`\`\n`;
       for (const mod of ctx.currentStack.modules) {
         const fwList = mod.frameworks.map(f => f.version ? `${f.name}@${f.version}` : f.name).join(', ');
         r += `├── ${mod.name}/ (${mod.type})\n│   └── [${fwList}]\n`;

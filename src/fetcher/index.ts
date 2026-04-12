@@ -8,6 +8,8 @@ import { fetchText } from './url-fetcher.js';
 import { htmlToMarkdown } from './html-converter.js';
 import { fetchGitHubReadme } from './github-fetcher.js';
 import { offlineFallback } from './offline-fallback.js';
+export { resolveGitHubToken, gitHubAuthHeaders, _resetTokenCache } from './github-token.js';
+export { isAllowedUrl } from './url-fetcher.js';
 
 /**
  * Returned by ensureDocs when the framework has no cached documentation
@@ -34,20 +36,47 @@ export class DocFetcher {
   /** URLs supplied at runtime by the LLM via resolve-doc-url */
   private resolvedUrls = new Map<string, string>();
   private memTTL = 1000 * 60 * 30; // 30 min in-memory
+  private static MAX_MEM_ENTRIES = 200;
+
+  private pruneMemCache(): void {
+    if (this.memCache.size <= DocFetcher.MAX_MEM_ENTRIES) return;
+    const now = Date.now();
+    for (const [key, val] of this.memCache) {
+      if (now - val.timestamp > this.memTTL) this.memCache.delete(key);
+    }
+    if (this.memCache.size > DocFetcher.MAX_MEM_ENTRIES) {
+      const entries = [...this.memCache.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp);
+      const toRemove = entries.length - DocFetcher.MAX_MEM_ENTRIES;
+      for (let i = 0; i < toRemove; i++) this.memCache.delete(entries[i][0]);
+    }
+  }
 
   // ─── Runtime framework management ─────────────────────────────────────
 
   addFramework(key: string, entry: FrameworkDocEntry): void {
     this.customFrameworks.set(key, entry);
-    this.memCache.delete(key);
+    this.purgeRuntimeState(key);
   }
 
   removeFramework(key: string): boolean {
     const existed = this.customFrameworks.delete(key);
-    this.memCache.delete(key);
-    this.resolvedUrls.delete(key);
+    this.purgeRuntimeState(key);
     invalidateFrameworkCache(key);
     return existed;
+  }
+
+  /**
+   * Purge all versioned in-memory state for a framework.
+   * Keys are shaped as "framework:version", so we match the prefix.
+   */
+  private purgeRuntimeState(key: string): void {
+    const prefix = key + ':';
+    for (const k of this.memCache.keys()) {
+      if (k === key || k.startsWith(prefix)) this.memCache.delete(k);
+    }
+    for (const k of this.resolvedUrls.keys()) {
+      if (k === key || k.startsWith(prefix)) this.resolvedUrls.delete(k);
+    }
   }
 
   listCustomFrameworks(): Map<string, FrameworkDocEntry> {
@@ -101,6 +130,7 @@ export class DocFetcher {
   // ─── Core pipeline ────────────────────────────────────────────────────
 
   async ensureDocs(frameworkKey: string, version?: string): Promise<EnsureDocsResult> {
+    this.pruneMemCache();
     const cacheKey = `${frameworkKey}:${version ?? 'latest'}`;
     const versionTag = version ?? 'latest';
     const entry = this.customFrameworks.get(frameworkKey) ?? FRAMEWORK_DOCS[frameworkKey];

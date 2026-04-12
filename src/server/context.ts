@@ -1,12 +1,19 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { DocFetcher } from '../fetcher/index.js';
 import { ProjectStack, MonorepoConfig } from '../types/index.js';
+import { SourceScanner, ScannedModule } from '../source-scanner/index.js';
+import { InternalDepsDetector, InternalDependency, InternalPatternConfig, DEFAULT_PATTERNS } from '../internal-deps/index.js';
 
 export interface ServerContext {
   server: McpServer;
   docFetcher: DocFetcher;
   currentStack: ProjectStack | null;
   currentConfig: MonorepoConfig | null;
+  sourceScanner: SourceScanner;
+  internalDepsDetector: InternalDepsDetector;
+  internalPatterns: InternalPatternConfig;
+  scannedModules: Map<string, ScannedModule>;
+  detectedInternalDeps: InternalDependency[];
 }
 
 export function findDetectedVersion(ctx: ServerContext, docKey: string): string | undefined {

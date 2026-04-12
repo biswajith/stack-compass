@@ -20,6 +20,7 @@ export function formatNeedsUrl(r: NeedsUrlResult): string {
 }
 
 export function formatTreeIndex(sections: DocSection[], indent = 0): string {
+  if (indent > 10) return '';
   let out = '';
   for (const s of sections) {
     const pad = '  '.repeat(indent);

@@ -34,4 +34,9 @@ export function testDiskCache() {
   assert('Multiple sections: A', readCache(fw, ver, 'section-a') === 'Content A', 'wrong A');
   assert('Multiple sections: B', readCache(fw, ver, 'section-b') === 'Content B', 'wrong B');
   invalidateFrameworkCache(fw);
+
+  // writeCache returns boolean
+  const ok = writeCache(fw, ver, 'ret-test', 'test');
+  assert('writeCache returns true on success', ok === true);
+  invalidateFrameworkCache(fw);
 }

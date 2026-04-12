@@ -1,0 +1,199 @@
+import type { Tree, Node } from './parser.js';
+import type { ExtractedSymbol, SymbolKind, RestEndpoint } from './types.js';
+
+export function extractJavaSymbols(tree: Tree, source: string): { symbols: ExtractedSymbol[]; packageName?: string; imports: string[]; restEndpoints: RestEndpoint[] } {
+  const root = tree.rootNode;
+  const symbols: ExtractedSymbol[] = [];
+  const imports: string[] = [];
+  const restEndpoints: RestEndpoint[] = [];
+  let packageName: string | undefined;
+
+  for (const child of root.children) {
+    if (child.type === 'package_declaration') {
+      const scope = child.childForFieldName('name') ?? child.children.find(c => c.type === 'scoped_identifier');
+      if (scope) packageName = scope.text;
+    }
+    if (child.type === 'import_declaration') {
+      const path = child.children.find(c => c.type === 'scoped_identifier');
+      if (path) imports.push(path.text);
+    }
+    if (child.type === 'class_declaration' || child.type === 'interface_declaration' || child.type === 'enum_declaration' || child.type === 'annotation_type_declaration') {
+      const sym = extractClassLike(child, source, restEndpoints);
+      if (sym) symbols.push(sym);
+    }
+  }
+
+  return { symbols, packageName, imports, restEndpoints };
+}
+
+function extractClassLike(node: Node, source: string, restEndpoints: RestEndpoint[]): ExtractedSymbol | null {
+  const nameNode = node.childForFieldName('name');
+  if (!nameNode) return null;
+
+  const kind = mapJavaKind(node.type);
+  const visibility = extractVisibility(node);
+  if (visibility === 'private') return null;
+
+  const annotations = extractAnnotations(node);
+  const docComment = extractDocComment(node, source);
+  const children: ExtractedSymbol[] = [];
+
+  const body = node.childForFieldName('body');
+  if (body) {
+    for (const member of body.children) {
+      if (member.type === 'method_declaration' || member.type === 'constructor_declaration') {
+        const methodSym = extractMethod(member, source);
+        if (methodSym) {
+          children.push(methodSym);
+          const ep = extractRestEndpoint(member, nameNode.text);
+          if (ep) restEndpoints.push(ep);
+        }
+      }
+      if (member.type === 'field_declaration') {
+        const fieldSym = extractField(member, source);
+        if (fieldSym) children.push(fieldSym);
+      }
+      if (member.type === 'enum_constant') {
+        children.push({
+          name: member.childForFieldName('name')?.text ?? member.text,
+          kind: 'constant',
+          visibility: 'public',
+          location: { startLine: member.startPosition.row + 1, endLine: member.endPosition.row + 1 },
+        });
+      }
+    }
+  }
+
+  return {
+    name: nameNode.text,
+    kind,
+    visibility,
+    annotations,
+    docComment,
+    location: { startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1 },
+    children: children.length > 0 ? children : undefined,
+  };
+}
+
+function extractMethod(node: Node, source: string): ExtractedSymbol | null {
+  const nameNode = node.childForFieldName('name') ?? (node.type === 'constructor_declaration' ? node.childForFieldName('name') : null);
+  const visibility = extractVisibility(node);
+  if (visibility === 'private') return null;
+
+  const kind: SymbolKind = node.type === 'constructor_declaration' ? 'constructor' : 'method';
+  const params = node.childForFieldName('parameters');
+  const returnType = node.childForFieldName('type');
+
+  let signature = '';
+  if (returnType) signature += returnType.text + ' ';
+  signature += (nameNode?.text ?? '<init>');
+  if (params) signature += params.text;
+
+  return {
+    name: nameNode?.text ?? '<init>',
+    kind,
+    visibility,
+    signature,
+    annotations: extractAnnotations(node),
+    docComment: extractDocComment(node, source),
+    location: { startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1 },
+  };
+}
+
+function extractField(node: Node, source: string): ExtractedSymbol | null {
+  const visibility = extractVisibility(node);
+  if (visibility === 'private') return null;
+
+  const declarator = node.children.find(c => c.type === 'variable_declarator');
+  const typeNode = node.childForFieldName('type');
+  const name = declarator?.childForFieldName('name')?.text ?? 'unknown';
+
+  return {
+    name,
+    kind: 'field',
+    visibility,
+    signature: typeNode ? `${typeNode.text} ${name}` : name,
+    annotations: extractAnnotations(node),
+    docComment: extractDocComment(node, source),
+    location: { startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1 },
+  };
+}
+
+function mapJavaKind(type: string): SymbolKind {
+  switch (type) {
+    case 'class_declaration': return 'class';
+    case 'interface_declaration': return 'interface';
+    case 'enum_declaration': return 'enum';
+    case 'annotation_type_declaration': return 'annotation';
+    default: return 'class';
+  }
+}
+
+function extractVisibility(node: Node): ExtractedSymbol['visibility'] {
+  for (const child of node.children) {
+    if (child.type === 'modifiers') {
+      const text = child.text;
+      if (text.includes('public')) return 'public';
+      if (text.includes('protected')) return 'protected';
+      if (text.includes('private')) return 'private';
+    }
+  }
+  return 'default';
+}
+
+function extractAnnotations(node: Node): string[] {
+  const annotations: string[] = [];
+  for (const child of node.children) {
+    if (child.type === 'modifiers') {
+      for (const mod of child.children) {
+        if (mod.type === 'marker_annotation' || mod.type === 'annotation') {
+          annotations.push(mod.text);
+        }
+      }
+    }
+  }
+  return annotations.length > 0 ? annotations : [];
+}
+
+function extractDocComment(node: Node, _source: string): string | undefined {
+  const prev = node.previousNamedSibling;
+  if (prev && (prev.type === 'block_comment' || prev.type === 'comment') && prev.text.startsWith('/**')) {
+    return prev.text
+      .replace(/^\/\*\*/, '')
+      .replace(/\*\/$/, '')
+      .split('\n')
+      .map(l => l.replace(/^\s*\*\s?/, '').trim())
+      .filter(l => l.length > 0)
+      .join('\n');
+  }
+  return undefined;
+}
+
+const REQUEST_MAPPING_METHODS = new Set([
+  '@RequestMapping', '@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping', '@PatchMapping',
+]);
+
+function extractRestEndpoint(node: Node, className: string): RestEndpoint | null {
+  const annotations = extractAnnotations(node);
+  for (const ann of annotations) {
+    for (const mapping of REQUEST_MAPPING_METHODS) {
+      if (ann.startsWith(mapping)) {
+        const method = mapping === '@RequestMapping'
+          ? extractMappingMethod(ann) ?? 'GET'
+          : mapping.replace('@', '').replace('Mapping', '').toUpperCase();
+
+        const pathMatch = ann.match(/(?:value\s*=\s*|path\s*=\s*)?["']([^"']+)["']/);
+        const path = pathMatch?.[1] ?? '/';
+        const handlerName = node.childForFieldName('name')?.text ?? 'unknown';
+
+        return { method, path, handler: `${className}.${handlerName}`, file: '' };
+      }
+    }
+  }
+  return null;
+}
+
+function extractMappingMethod(annotation: string): string | null {
+  const methodMatch = annotation.match(/method\s*=\s*RequestMethod\.(\w+)/);
+  return methodMatch ? methodMatch[1] : null;
+}

@@ -54,5 +54,47 @@ export async function testFrameworkManagement() {
   await client.callTool({ name: 'remove-framework', arguments: { key: 'test-versioned' } });
   invalidateFrameworkCache('test-versioned');
 
+  // ── Remove purges ALL versioned in-memory state ──────────────────────
+  // This reproduces the bug where remove-framework deleted "fw" from memCache
+  // but supplyDocUrl stored entries under "fw:version", leaving stale data.
+  console.log('  Remove purges versioned state...');
+
+  // Step 1: add framework and supply a URL to populate versioned caches
+  await client.callTool({ name: 'add-framework', arguments: {
+    key: 'purge-test', description: 'Test purge behavior',
+  }});
+  const resolved = getText(await client.callTool({ name: 'resolve-doc-url', arguments: {
+    framework: 'purge-test',
+    url: 'https://graphql.org/learn/queries/',
+    version: '1.0.0',
+  }}));
+  assertIncludes('purge: initial resolve worked', resolved, 'Documentation indexed');
+
+  // Verify docs are served from in-memory cache
+  const beforeRemove = getText(await client.callTool({ name: 'get-doc-index', arguments: {
+    framework: 'purge-test', version: '1.0.0',
+  }}));
+  assert('purge: docs available before remove', beforeRemove.includes('Documentation Sections'), 'expected sections');
+
+  // Step 2: remove the framework
+  const purgeRm = getText(await client.callTool({ name: 'remove-framework', arguments: { key: 'purge-test' } }));
+  assertIncludes('purge: remove succeeded', purgeRm, 'Removed');
+
+  // Step 3: re-add with same key but NO github/llmsTxt — should need a fresh URL
+  await client.callTool({ name: 'add-framework', arguments: {
+    key: 'purge-test', description: 'Re-added after removal',
+  }});
+  const afterReAdd = getText(await client.callTool({ name: 'get-doc-index', arguments: {
+    framework: 'purge-test', version: '1.0.0',
+  }}));
+  assert(
+    'purge: after remove+re-add, stale docs are gone — needs fresh URL',
+    afterReAdd.includes('resolve-doc-url'),
+    `expected "resolve-doc-url" prompt but got sections: ${afterReAdd.substring(0, 200)}`,
+  );
+
+  // Cleanup
+  await client.callTool({ name: 'remove-framework', arguments: { key: 'purge-test' } });
+
   await client.close();
 }

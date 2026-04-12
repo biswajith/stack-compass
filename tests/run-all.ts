@@ -3,6 +3,10 @@ import { printReport, passed, failed } from './helpers.js';
 // Unit tests
 import { testTreeBuilder } from './unit/tree-builder.test.js';
 import { testDiskCache } from './unit/disk-cache.test.js';
+import { testSourceScanner } from './unit/source-scanner.test.js';
+import { testInternalDeps } from './unit/internal-deps.test.js';
+import { testGitHubToken } from './unit/github-token.test.js';
+import { testUrlFetcher } from './unit/url-fetcher.test.js';
 
 // Integration tests
 import { testAnalyzeProject } from './integration/analyze-project.test.js';
@@ -11,6 +15,7 @@ import { testDocIndex } from './integration/doc-index.test.js';
 import { testDocSection } from './integration/doc-section.test.js';
 import { testFrameworkManagement } from './integration/framework-management.test.js';
 import { testSupportedFrameworks } from './integration/supported-frameworks.test.js';
+import { testSourceScanTools } from './integration/source-scan-tools.test.js';
 
 // Workflow tests
 import { testFullWorkflow } from './workflow/full-workflow.test.js';
@@ -18,6 +23,7 @@ import { testFullWorkflow } from './workflow/full-workflow.test.js';
 // Scenario tests
 import { testRealWorldDiscovery } from './scenario/real-world-discovery.test.js';
 import { testUsagePatternSearch } from './scenario/usage-pattern-search.test.js';
+import { testInternalApiSearch } from './scenario/internal-api-search.test.js';
 
 async function run() {
   console.log('=========================================');
@@ -27,6 +33,10 @@ async function run() {
   // Unit
   testTreeBuilder();
   testDiskCache();
+  await testSourceScanner();
+  await testInternalDeps();
+  testGitHubToken();
+  testUrlFetcher();
 
   // Integration
   await testAnalyzeProject();
@@ -35,6 +45,7 @@ async function run() {
   await testDocSection();
   await testFrameworkManagement();
   await testSupportedFrameworks();
+  await testSourceScanTools();
 
   // Workflow (mock LLM ↔ MCP server conversation)
   await testFullWorkflow();
@@ -42,6 +53,7 @@ async function run() {
   // Scenarios (real-world framework discovery + usage pattern search)
   await testRealWorldDiscovery();
   await testUsagePatternSearch();
+  await testInternalApiSearch();
 
   printReport();
   process.exit(failed > 0 ? 1 : 0);
