@@ -246,10 +246,22 @@ LLM: [calls get-doc-index for graphql, then get-doc-section for key sections]
 ```
 You: We're upgrading from Spring Boot 2.7 to 3.2. What changed?
 
-LLM: [calls get-doc-index for spring-boot with version 2.7.0, then 3.2.0]
+LLM: [calls get-doc-index for spring-boot with version 2.7.0]
+     Server: "I need a documentation URL for spring-boot v2.7.0"
+LLM: [calls resolve-doc-url with the Spring Boot 2.7 reference URL]
+     Server fetches, indexes → returns section tree for 2.7
+
+LLM: [calls get-doc-index for spring-boot with version 3.2.0]
+     Server: "I need a documentation URL for spring-boot v3.2.0"
+LLM: [calls resolve-doc-url with the Spring Boot 3.2 reference URL]
+     Server fetches, indexes → returns section tree for 3.2
+
+LLM: [reads relevant sections from both, compares them]
      Key changes: javax.* → jakarta.* namespace migration, Java 17 minimum,
      new observability features, GraalVM native image support...
 ```
+
+Note: the server doesn't diff documents itself — it fetches and indexes each version separately. The LLM reads sections from both and does the comparison.
 
 ### Adding internal documentation
 
