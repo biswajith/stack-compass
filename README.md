@@ -136,6 +136,8 @@ Docker, Kubernetes, Helm (2, 3)
 ### Build Tools
 Maven, Gradle (7, 8), Yarn (1, 2+), npm
 
+> **New here?** See the full [Setup & Usage Guide](SETUP.md) for step-by-step instructions, example conversations, caching details, and troubleshooting.
+
 ## Installation
 
 ```bash
