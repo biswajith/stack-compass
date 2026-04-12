@@ -1,72 +1,120 @@
 # Stack Compass
 
-An MCP server that auto-detects your monorepo's full technology stack and serves version-specific framework documentation using a **tree-indexed, two-phase retrieval** approach — inspired by [PageIndex](https://github.com/VectifyAI/PageIndex)'s reasoning-based RAG.
+An MCP server that auto-detects your monorepo's full technology stack and serves **dynamically fetched, version-specific framework documentation** using a tree-indexed, two-phase retrieval approach.
 
-Instead of dumping entire docs into the LLM's context window, Stack Compass returns a lightweight **section index** first. The LLM reads titles and summaries, reasons about which section is relevant, then fetches only that section's content. This means the LLM spends tokens on what matters, not on irrelevant documentation.
+**No hardcoded documentation URLs.** When the server needs docs for a framework it hasn't seen before, it asks the LLM to provide the most relevant official documentation URL. The server then fetches, converts, indexes, and caches it locally. The LLM's built-in knowledge of where documentation lives replaces a brittle, manually maintained URL registry.
 
-## How It Works
+## How It Works — Full Workflow
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  1. analyze-project                                         │
-│     Scans pom.xml, build.gradle, package.json, etc.         │
-│     Detects: spring-boot@3.2.0, react@18.2.0, ...          │
-├─────────────────────────────────────────────────────────────┤
-│  2. get-doc-index (lightweight — titles + summaries only)   │
-│     Returns:                                                │
-│     - Namespace (jakarta.*) [namespace]                     │
-│       BREAKING CHANGE: javax.* → jakarta.*                  │
-│     - Security Configuration [security]                     │
-│       SecurityFilterChain bean — no WebSecurityConfigurer    │
-│     - Migration from 2.x [migration]                        │
-│       javax→jakarta, Java 17 min, ...                       │
-├─────────────────────────────────────────────────────────────┤
-│  3. get-doc-section (targeted — full content for 1 section) │
-│     LLM picks "security" → gets SecurityFilterChain code,   │
-│     requestMatchers() examples, Customizer.withDefaults()   │
+│  User: "Analyze /path/to/monorepo and generate docs"        │
+└──────────────────────────┬──────────────────────────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Step 1: analyze-project                                     │
+│  Scans pom.xml, build.gradle, package.json, build.sbt, etc. │
+│  Returns:                                                    │
+│    api/      → spring-boot@3.2.0, hibernate@6.4.0           │
+│    frontend/ → react@18.2.0, redux@5.0.0, graphql@16.8.0   │
+│    infra/    → docker, kubernetes, helm@3.14.0               │
+└──────────────────────────┬──────────────────────────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Step 2: LLM calls get-doc-index for each framework          │
+│                                                              │
+│  ┌─ Path A: Cache hit / llms.txt / rich GitHub README ────┐ │
+│  │  Server returns section tree immediately                │ │
+│  └────────────────────────────────────────────────────────┘ │
+│                                                              │
+│  ┌─ Path B: No cached docs, no URL available ─────────────┐ │
+│  │  Server responds: "I need a documentation URL for       │ │
+│  │  spring-boot v3.2.0. Please call resolve-doc-url."     │ │
+│  └────────────────────────────────────────────────────────┘ │
+└──────────────────────────┬──────────────────────────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Step 3: LLM calls resolve-doc-url                           │
+│  The LLM already knows Spring Boot 3.2 docs live at:        │
+│  https://docs.spring.io/spring-boot/docs/3.2.0/reference/   │
+│                                                              │
+│  Server fetches URL → HTML→Markdown → heading tree → cache   │
+│  Returns: section index (titles + summaries, ~500 tokens)    │
+└──────────────────────────┬──────────────────────────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Step 4: LLM picks a section from the index                  │
+│  Calls get-doc-section { sectionId: "web" }                  │
+│  Server returns full section content (~300 tokens)            │
+└──────────────────────────┬──────────────────────────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  Step 5: Repeat for each detected framework                  │
+│  Cached frameworks → instant. New ones → resolve-doc-url.    │
+│  On subsequent sessions: everything served from disk cache.  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Phase 1** is cheap (fits in ~500 tokens). **Phase 2** gives exactly what's needed. No wasted context window.
+## Why LLM-Supplied URLs?
 
-## Tools (10)
+Traditional approaches hardcode documentation URLs in a registry. This breaks when:
+- URLs change (Spring Boot docs restructure between versions)
+- New frameworks appear (the registry doesn't know about them)
+- Version-specific URLs differ (Hibernate 5 vs 6 have completely different URL structures)
+
+**Stack Compass flips this:** the LLM knows where docs live. It has that knowledge baked in. The server just needs to be told once per framework — then it fetches, indexes, and caches everything.
+
+## Documentation Resolution Priority
+
+When `get-doc-index` is called, the server tries these sources in order:
+
+1. **Disk cache** — previously fetched docs (`~/.stack-compass/cache/`, 7-day TTL)
+2. **llms.txt** — structured for LLMs, highest quality (Next.js, Tailwind publish these)
+3. **GitHub README** — fetched via raw.githubusercontent.com or GitHub API
+4. **Ask the LLM** — server returns a "needs URL" prompt → LLM calls `resolve-doc-url`
+5. **Offline fallback** — thin one-paragraph summaries for key frameworks
+
+## Two-Phase Retrieval
+
+Traditional doc serving dumps entire guides into the LLM context. This wastes tokens and degrades reasoning.
+
+Stack Compass uses the same principle as [PageIndex](https://github.com/VectifyAI/PageIndex):
+
+1. **Phase 1: Read the index** — titles + summaries (~500 tokens)
+2. **LLM reasons** — "I need authentication config, that's the `security` section"
+3. **Phase 2: Fetch targeted content** — just that section (~300 tokens)
+
+vs. dumping everything: ~5000+ tokens, most irrelevant.
+
+## Tools (11)
 
 | Tool | Phase | Description |
 |------|-------|-------------|
 | `analyze-project` | Setup | Scans project, detects frameworks with exact versions |
 | `configure-monorepo` | Setup | Describes monorepo structure before analysis |
-| `get-doc-index` | **Phase 1** | Returns lightweight tree index — section titles + summaries |
+| `resolve-doc-url` | **URL Resolution** | LLM supplies the documentation URL; server fetches, indexes, and caches it |
+| `get-doc-index` | **Phase 1** | Returns heading tree — section titles + summaries only |
 | `get-doc-section` | **Phase 2** | Returns full content for a specific section by ID |
-| `fetch-external-docs` | Phase 2 | Fetches live docs from llms.txt / GitHub README, falls back to built-in content |
+| `fetch-external-docs` | Phase 2 | Returns the full assembled documentation as one document |
 | `get-project-stack` | Query | Full architecture overview |
 | `list-detected-frameworks` | Query | All detected framework keys with versions |
-| `add-framework` | Config | Register new framework or version-specific docs at runtime |
+| `add-framework` | Config | Register new framework at runtime |
 | `remove-framework` | Config | Remove a custom-registered framework |
 | `list-all-supported-frameworks` | Query | All 30+ supported frameworks with version ranges |
 
-## Version-Aware Documentation
+## Version-Aware Detection
 
-Different major versions get different section trees and different section content:
+The analyzer extracts **exact versions** from build files and resolves the correct documentation for each:
 
-| Framework | v2.x / Older | v3.x / Newer |
-|-----------|-------------|-------------|
-| Spring Boot | `security` → WebSecurityConfigurerAdapter, antMatchers() | `security` → SecurityFilterChain bean, requestMatchers() |
-| Spring Boot | `namespace` → javax.* | `namespace` → jakarta.* (BREAKING) |
-| Spring Boot | — | `observability` → Micrometer, `native` → GraalVM, `virtual-threads` |
-| Spring Security | `config` → extends WebSecurityConfigurerAdapter | `config` → SecurityFilterChain @Bean, lambda DSL |
-| Hibernate | `entity` → javax.persistence | `entity` → jakarta.persistence |
-| React 18 | `concurrent` → useTransition, Suspense | React 19: `actions` → useActionState, `compiler`, Server Components |
-| Scala | `implicits` → implicit classes/params | `given-using` → given/using/extension, `enums` |
-| JUnit | `basics` → @RunWith, @Before | `basics` → @ExtendWith, @BeforeEach, `parameterized`, `nested` |
-
-## Documentation Fallback Chain
-
-`fetch-external-docs` never returns empty. It tries sources in order:
-
-1. **`llms.txt` URL** — structured docs designed for LLMs (Next.js, Tailwind)
-2. **GitHub README** — project overview from the repo
-3. **Built-in content** — assembles all version-specific `SECTION_CONTENT` entries into a comprehensive document
-4. **Actionable error** — suggests `add-framework` with a `llmsTxt` or `github` source
+| Source File | Extracts |
+|-------------|----------|
+| `pom.xml` | Spring Boot (parent + properties), Hibernate, JUnit, Java version, databases |
+| `build.gradle` | Spring Boot plugin, Gradle wrapper version, Java toolchain |
+| `build.sbt` | Scala version, Akka, Play, ZIO, Cats from libraryDependencies |
+| `package.json` | React, Redux, GraphQL, TypeScript, testing frameworks, package manager |
+| `Dockerfile` | Docker usage |
+| `k8s/`, `Chart.yaml` | Kubernetes, Helm |
+| `*.graphql`, `*.gql` | GraphQL (recursive search up to 3 levels deep) |
 
 ## Supported Frameworks (30+)
 
@@ -120,29 +168,20 @@ claude mcp add stack-compass node /absolute/path/to/stack-compass/dist/index.js
 
 ## Testing
 
-The test suite uses the MCP SDK's `Client` + `InMemoryTransport` to wire a real client directly to the server in-process — no subprocess spawning, no stdio.
-
 ```bash
 npm test
 ```
 
-```
-Stack Compass v2.0 — TypeScript Test Suite
-Test 1: analyze-project (this repo)
-Test 2: get-doc-index (spring-boot v3.2.0)
-...
-Test 63: fetch-external-docs (hibernate v6.4.0 — v6 built-in)
+The test suite uses `InMemoryTransport` for in-process MCP client-server communication — no subprocess spawning.
 
-Results: 170 passed, 0 failed out of 170 tests
-```
-
-63 test cases covering 170 assertions across:
-- Project analysis (dynamic file reading)
-- Version-dispatched doc indexes (Spring Boot 2 vs 3, React 18 vs 19, Scala 2 vs 3, JUnit 4 vs 5, Spring Security 5 vs 6)
-- Version-dispatched section content (javax vs jakarta, SecurityFilterChain vs WebSecurityConfigurerAdapter, etc.)
-- External docs fallback chain (llms.txt → GitHub → built-in → error)
-- Stateful tools (list-detected-frameworks, get-project-stack after analyze)
-- Runtime framework management (add/remove)
+Tests cover:
+- **Unit**: tree-builder (markdown parsing, heading nesting, section map generation)
+- **Unit**: disk-cache (write, read, invalidate, TTL)
+- **Integration**: Full MCP tool lifecycle — analyze, fetch docs, navigate sections, add/remove frameworks
+- **Integration**: `resolve-doc-url` flow — simulate the LLM supplying URLs
+- **Integration**: Dynamic doc fetching from real URLs (GraphQL, React, Spring Boot)
+- **Scenario**: Real-world framework discovery simulation (spring-retry, resilience4j, zustand, etc.)
+- **Scenario**: Usage pattern search across fetched documentation sections
 
 ## Usage Examples
 
@@ -157,49 +196,40 @@ stack-compass detects:
 
 User: Get the doc index for spring-boot
 
-Returns lightweight tree:
-  - Namespace (jakarta.*) [namespace]
-  - Security Configuration [security]
-  - Migration from 2.x [migration]
-  ... 12 sections total
+Server: "I need a documentation URL for spring-boot v3.2.0.
+         Please call resolve-doc-url."
 
-User: Get the security section for spring-boot
+LLM calls resolve-doc-url with:
+  url: "https://docs.spring.io/spring-boot/docs/3.2.0/reference/htmlsingle/"
 
-Returns SecurityFilterChain code, requestMatchers() examples —
-NOT WebSecurityConfigurerAdapter (because v3.2.0 was detected)
+Server fetches, converts, indexes → returns section tree:
+  - Getting Started [getting-started]
+  - Configuration [configuration]
+  - Web [web]
+  ...
+
+User: Get the "web" section for spring-boot
+→ Returns the full section content from cached docs
 ```
 
-### 2. Compare versions
+### 2. Add custom framework docs
 
 ```
-User: Get the security section for spring-boot version 2.7.0
-→ WebSecurityConfigurerAdapter, antMatchers(), javax.servlet
+User: Add framework "our-auth-lib" with description "Internal OAuth2 library"
 
-User: Get the security section for spring-boot version 3.2.0
-→ SecurityFilterChain bean, requestMatchers(), jakarta.servlet
+LLM calls add-framework → then resolve-doc-url with the wiki URL
+
+User: Get doc index for our-auth-lib
+→ Section tree from the wiki page, converted to markdown
 ```
 
-### 3. Add custom framework docs
+### 3. Works offline after first fetch
 
 ```
-User: Add framework "my-auth-lib" with description "Internal OAuth2 library"
-      and docs at https://wiki.company.com/auth
-
-User: Get doc index for my-auth-lib
-→ Returns overview section with link to internal docs
+First run (online): LLM provides URLs → server fetches → caches to ~/.stack-compass/cache/
+Subsequent runs: Reads from disk cache instantly (7-day TTL)
+Fully offline: Falls back to thin built-in summaries
 ```
-
-## Why Tree-Indexed Retrieval?
-
-Traditional doc serving dumps entire guides into the LLM context. This wastes tokens and degrades reasoning (see [Chroma's context rot research](https://research.trychroma.com/context-rot)).
-
-Stack Compass uses the same principle as [PageIndex](https://github.com/VectifyAI/PageIndex) — a hierarchical index that the LLM navigates by reasoning:
-
-1. **Read the index** — titles + summaries (~500 tokens)
-2. **Reason** — "I need authentication config, that's the `security` section"
-3. **Fetch targeted content** — just the SecurityFilterChain code (~300 tokens)
-
-vs. dumping everything: ~5000+ tokens, most irrelevant.
 
 ## Project Structure
 
@@ -207,11 +237,31 @@ vs. dumping everything: ~5000+ tokens, most irrelevant.
 stack-compass/
 ├── src/
 │   ├── index.ts          # Entry point — stdio transport
-│   ├── server.ts         # MCP server factory — all 10 tools
+│   ├── server.ts         # MCP server factory — all 11 tools
 │   ├── analyzer.ts       # Project scanner — version extraction from build files
-│   ├── doc-fetcher.ts    # Tree-indexed docs — section trees + section content + fallback chain
-│   ├── types.ts          # Types, version resolution, DocTreeIndex/DocSection
-│   └── test.ts           # 170-assertion test suite using MCP Client + InMemoryTransport
+│   ├── doc-fetcher.ts    # Dynamic fetch → convert → parse → cache pipeline
+│   ├── disk-cache.ts     # ~/.stack-compass/cache/ with 7-day TTL
+│   ├── tree-builder.ts   # Markdown → heading tree → DocSection[]
+│   ├── types.ts          # Types, version resolution, framework registry (metadata only)
+│   └── version.ts        # Single source of truth for app name/version
+├── tests/
+│   ├── helpers.ts        # Shared setup, assertions, mock LLM, searchAllSections
+│   ├── run-all.ts        # Test runner entry point
+│   ├── unit/
+│   │   ├── tree-builder.test.ts
+│   │   └── disk-cache.test.ts
+│   ├── integration/
+│   │   ├── analyze-project.test.ts
+│   │   ├── resolve-doc-url.test.ts
+│   │   ├── doc-index.test.ts
+│   │   ├── doc-section.test.ts
+│   │   ├── framework-management.test.ts
+│   │   └── supported-frameworks.test.ts
+│   ├── workflow/
+│   │   └── full-workflow.test.ts   # Mock LLM ↔ MCP server conversation
+│   └── scenario/
+│       ├── real-world-discovery.test.ts
+│       └── usage-pattern-search.test.ts
 ├── package.json
 └── tsconfig.json
 ```
