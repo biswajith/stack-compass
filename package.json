@@ -14,7 +14,7 @@
   },
   "keywords": ["mcp", "documentation", "monorepo", "stack"],
   "author": "",
-  "license": "ISC",
+  "license": "Apache-2.0",
   "description": "MCP server that detects project frameworks from pom.xml, build.gradle, build.sbt, package.json, Docker, and K8s configs — then serves on-demand documentation for each.",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
