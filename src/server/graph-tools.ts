@@ -45,12 +45,19 @@ export function registerGraphTools(ctx: ServerContext): void {
         ? `Last scan: ${timeAgo(stats.lastScanEpoch)}`
         : 'Last scan: never';
 
+      let staleFiles = 0;
+      try {
+        const { IncrementalSync } = await import('../graph/sync.js');
+        const sync = new IncrementalSync(check.store);
+        staleFiles = sync.getStaleFileCount();
+      } catch { /* sync module may fail in edge cases */ }
+
       const r = [
         '# Knowledge Graph Status\n',
         `- **Nodes:** ${stats.totalNodes}`,
         `- **Edges:** ${stats.totalEdges}`,
         `- **Files:** ${stats.totalFiles}`,
-        `- **Stale files:** 0`,
+        `- **Stale files:** ${staleFiles}`,
         `- ${lastScan}`,
       ].join('\n');
 
