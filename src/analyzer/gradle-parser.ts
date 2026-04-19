@@ -42,6 +42,7 @@ export function parseGradle(filePath: string): DetectedFramework[] {
       { pattern: /junit-jupiter|junit-bom/, name: 'junit', category: 'testing', docKey: 'junit' },
       { pattern: /mockito/, name: 'mockito', category: 'testing', docKey: 'mockito' },
       { pattern: /lombok/, name: 'lombok', category: 'other', docKey: 'lombok' },
+      { pattern: /com\.google\.adk|google-adk/, name: 'google-adk', category: 'backend', docKey: 'google-adk' },
     ];
 
     for (const dep of gradleDeps) {

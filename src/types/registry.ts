@@ -151,4 +151,11 @@ export const FRAMEWORK_DOCS: Record<string, FrameworkDocEntry> = {
   ]},
 
   'npm': { versions: [{ description: 'Package manager for Node.js' }] },
+
+  // LangChain ecosystem
+  'langchain': { versions: [{ llmsTxt: 'https://python.langchain.com/llms.txt', github: 'langchain-ai/langchain', description: 'LangChain Python — agent engineering platform for building LLM-powered applications, chains, tools, and RAG' }] },
+  'langchain-js': { versions: [{ llmsTxt: 'https://js.langchain.com/llms.txt', github: 'langchain-ai/langchainjs', description: 'LangChain.js — TypeScript/JavaScript port of LangChain for building LLM applications in Node.js and browsers' }] },
+  'langgraph': { versions: [{ llmsTxt: 'https://langchain-ai.github.io/langgraph/llms.txt', github: 'langchain-ai/langgraph', description: 'LangGraph — low-level orchestration framework for stateful, long-running agents with durable execution and human-in-the-loop' }] },
+  // Google ADK
+  'google-adk': { versions: [{ github: 'google/adk-java', description: 'Google Agent Development Kit (Java) — code-first toolkit for building, evaluating, and deploying AI agents with multi-agent composition and tool ecosystem' }] },
 };
