@@ -27,6 +27,10 @@ export function extractTypeScriptSymbols(tree: Tree, source: string): { symbols:
     }
   }
 
+  // Extract api-call symbols from fetch/axios calls in all function bodies
+  const apiCalls = extractApiCallSymbols(root, source);
+  symbols.push(...apiCalls);
+
   return { symbols, imports };
 }
 
@@ -181,6 +185,16 @@ function extractLexicalDecl(node: Node, source: string, docNode?: Node): Extract
   const value = declarator.childForFieldName('value');
 
   const name = nameNode?.text ?? 'unknown';
+
+  // Detect gql tagged template: const X = gql`...`
+  if (value?.type === 'call_expression') {
+    const fn = value.childForFieldName('function');
+    if (fn?.text === 'gql') {
+      const gqlResult = extractGqlTaggedTemplate(name, value, source);
+      if (gqlResult) return gqlResult;
+    }
+  }
+
   const isArrowFn = value?.type === 'arrow_function';
   const isFunction = value?.type === 'function_expression' || value?.type === 'function';
 
@@ -348,4 +362,151 @@ function walkForJsx(node: Node, elements: Set<string>): void {
   for (const child of node.children) {
     walkForJsx(child, elements);
   }
+}
+
+// ── gql tagged template extraction ──────────────────────────────────────
+
+function extractGqlTaggedTemplate(
+  varName: string,
+  callNode: Node,
+  _source: string,
+): ExtractedSymbol | null {
+  // Tagged template: gql`query GetUsers { users { id name } }`
+  // Tree-sitter parses as call_expression with template_string as direct child
+  const templateArg = callNode.children.find(c => c.type === 'template_string');
+  if (!templateArg) return null;
+
+  const content = templateArg.text.replace(/^`/, '').replace(/`$/, '').trim();
+  return parseGqlContent(varName, content, callNode);
+}
+
+function parseGqlContent(
+  varName: string,
+  content: string,
+  node: Node,
+): ExtractedSymbol | null {
+  // Parse operation type and fields from gql content
+  const opMatch = content.match(/^\s*(query|mutation|subscription)\s+\w+\s*\{/);
+  if (!opMatch) return null;
+
+  const operationType = opMatch[1] as 'query' | 'mutation' | 'subscription';
+
+  // Extract top-level field names from the operation body
+  const fields: string[] = [];
+  const bodyStart = content.indexOf('{');
+  if (bodyStart >= 0) {
+    const body = content.slice(bodyStart + 1);
+    // Find top-level field names (before any nested braces)
+    let depth = 0;
+    for (const line of body.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed === '}') { depth--; if (depth < 0) break; continue; }
+      if (depth === 0) {
+        const fieldMatch = trimmed.match(/^(\w+)/);
+        if (fieldMatch && fieldMatch[1] !== '}') {
+          fields.push(fieldMatch[1]);
+        }
+      }
+      if (trimmed.includes('{')) depth++;
+    }
+  }
+
+  return {
+    name: varName,
+    kind: 'gql-operation',
+    visibility: 'public',
+    gqlOperationType: operationType,
+    gqlFields: fields,
+    location: { startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1 },
+  };
+}
+
+// ── API call extraction (fetch/axios) ───────────────────────────────────
+
+const HTTP_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch']);
+
+function extractApiCallSymbols(root: Node, _source: string): ExtractedSymbol[] {
+  const calls: ExtractedSymbol[] = [];
+  walkForApiCalls(root, calls);
+  return calls;
+}
+
+function walkForApiCalls(node: Node, calls: ExtractedSymbol[]): void {
+  if (node.type === 'call_expression') {
+    const fn = node.childForFieldName('function');
+    const args = node.childForFieldName('arguments');
+
+    if (fn && args) {
+      let method: string | null = null;
+      let isFetchLike = false;
+
+      if (fn.type === 'identifier' && fn.text === 'fetch') {
+        method = 'GET';
+        isFetchLike = true;
+      } else if (fn.type === 'member_expression') {
+        const prop = fn.childForFieldName('property');
+        if (prop && HTTP_METHODS.has(prop.text)) {
+          method = prop.text.toUpperCase();
+          isFetchLike = true;
+        }
+      }
+
+      if (isFetchLike && method) {
+        const urlArg = args.children.find(c =>
+          c.type === 'string' || c.type === 'template_string'
+        );
+
+        if (urlArg) {
+          const path = extractUrlPath(urlArg);
+          if (path && path.startsWith('/')) {
+            const funcParent = findParentFunction(node);
+            const name = funcParent ?? `api_call_${node.startPosition.row + 1}`;
+            calls.push({
+              name,
+              kind: 'api-call',
+              visibility: 'public',
+              apiMethod: method,
+              apiPath: path,
+              location: { startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1 },
+            });
+          }
+        }
+      }
+    }
+  }
+
+  for (const child of node.children) {
+    walkForApiCalls(child, calls);
+  }
+}
+
+function extractUrlPath(node: Node): string | null {
+  if (node.type === 'string') {
+    return node.text.replace(/^['"]/, '').replace(/['"]$/, '');
+  }
+  if (node.type === 'template_string') {
+    // Extract static prefix from template literal: `/api/users/${id}` → `/api/users/{param}`
+    const content = node.text.replace(/^`/, '').replace(/`$/, '');
+    const parts = content.split(/\$\{[^}]*\}/);
+    let result = parts[0];
+    for (let i = 1; i < parts.length; i++) {
+      result += '{param}' + parts[i];
+    }
+    return result.replace(/\/$/, '');
+  }
+  return null;
+}
+
+function findParentFunction(node: Node): string | null {
+  let current = node.parent;
+  while (current) {
+    if (current.type === 'function_declaration') {
+      return current.childForFieldName('name')?.text ?? null;
+    }
+    if (current.type === 'variable_declarator') {
+      return current.childForFieldName('name')?.text ?? null;
+    }
+    current = current.parent;
+  }
+  return null;
 }

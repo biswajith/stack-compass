@@ -87,7 +87,7 @@ async function test_should_create_db_with_schema_version() {
   try {
     const store = GraphStore.open(dbPath);
     const version = store.schemaVersion();
-    assert('create: schema version is 3', version === 3, `got ${version}`);
+    assert('create: schema version is 4', version === 4, `got ${version}`);
     store.close();
   } finally { cleanup(dbPath); }
 }
@@ -143,6 +143,10 @@ async function test_should_insert_and_read_nodes() {
       module: 'api',
       extendsName: null,
       implementsNames: null,
+      gqlOperationType: null,
+      gqlFields: null,
+      apiMethod: null,
+      apiPath: null,
     });
     assert('nodes: id is positive', nodeId > 0);
 
@@ -165,8 +169,8 @@ async function test_should_insert_and_read_edges() {
   try {
     const store = GraphStore.open(dbPath);
     const fileId = store.upsertFile('/src/A.java', 'a', 'java', 'api');
-    const n1 = store.insertNode({ name: 'A', kind: 'class', visibility: 'public', fileId, startLine: 1, endLine: 10, parentId: null, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null });
-    const n2 = store.insertNode({ name: 'B', kind: 'class', visibility: 'public', fileId, startLine: 11, endLine: 20, parentId: null, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null });
+    const n1 = store.insertNode({ name: 'A', kind: 'class', visibility: 'public', fileId, startLine: 1, endLine: 10, parentId: null, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null, gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null });
+    const n2 = store.insertNode({ name: 'B', kind: 'class', visibility: 'public', fileId, startLine: 11, endLine: 20, parentId: null, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null, gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null });
     store.insertEdge(n1, n2, 'calls', null);
 
     const edges = store.getEdgesFrom(n1);
@@ -184,8 +188,8 @@ async function test_should_cascade_delete_file() {
   try {
     const store = GraphStore.open(dbPath);
     const fileId = store.upsertFile('/src/Gone.java', 'x', 'java', 'api');
-    const n1 = store.insertNode({ name: 'Gone', kind: 'class', visibility: 'public', fileId, startLine: 1, endLine: 5, parentId: null, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null });
-    const n2 = store.insertNode({ name: 'method', kind: 'method', visibility: 'public', fileId, startLine: 6, endLine: 8, parentId: n1, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null });
+    const n1 = store.insertNode({ name: 'Gone', kind: 'class', visibility: 'public', fileId, startLine: 1, endLine: 5, parentId: null, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null, gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null });
+    const n2 = store.insertNode({ name: 'method', kind: 'method', visibility: 'public', fileId, startLine: 6, endLine: 8, parentId: n1, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null, gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null });
     store.insertEdge(n1, n2, 'calls', null);
 
     store.deleteFile(fileId);
@@ -204,8 +208,8 @@ async function test_should_search_nodes_by_name() {
   try {
     const store = GraphStore.open(dbPath);
     const fileId = store.upsertFile('/src/Svc.java', 'h', 'java', 'api');
-    store.insertNode({ name: 'UserService', kind: 'class', visibility: 'public', fileId, startLine: 1, endLine: 100, parentId: null, module: 'api', qualified: 'com.example.UserService', signature: 'public class UserService', docComment: null, extendsName: null, implementsNames: null });
-    store.insertNode({ name: 'OrderService', kind: 'class', visibility: 'public', fileId, startLine: 101, endLine: 200, parentId: null, module: 'api', qualified: 'com.example.OrderService', signature: 'public class OrderService', docComment: null, extendsName: null, implementsNames: null });
+    store.insertNode({ name: 'UserService', kind: 'class', visibility: 'public', fileId, startLine: 1, endLine: 100, parentId: null, module: 'api', qualified: 'com.example.UserService', signature: 'public class UserService', docComment: null, extendsName: null, implementsNames: null, gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null });
+    store.insertNode({ name: 'OrderService', kind: 'class', visibility: 'public', fileId, startLine: 101, endLine: 200, parentId: null, module: 'api', qualified: 'com.example.OrderService', signature: 'public class OrderService', docComment: null, extendsName: null, implementsNames: null, gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null });
 
     const results = store.searchSymbols('UserService');
     assert('fts name: found 1 result', results.length === 1, `got ${results.length}`);
@@ -221,7 +225,7 @@ async function test_should_search_nodes_by_signature() {
   try {
     const store = GraphStore.open(dbPath);
     const fileId = store.upsertFile('/src/Ctl.java', 'h', 'java', 'api');
-    store.insertNode({ name: 'createUser', kind: 'method', visibility: 'public', fileId, startLine: 1, endLine: 10, parentId: null, module: 'api', qualified: null, signature: 'public User createUser(CreateUserRequest req)', docComment: null, extendsName: null, implementsNames: null });
+    store.insertNode({ name: 'createUser', kind: 'method', visibility: 'public', fileId, startLine: 1, endLine: 10, parentId: null, module: 'api', qualified: null, signature: 'public User createUser(CreateUserRequest req)', docComment: null, extendsName: null, implementsNames: null, gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null });
 
     const results = store.searchSymbols('CreateUserRequest');
     assert('fts sig: found via signature', results.length === 1, `got ${results.length}`);
@@ -241,7 +245,7 @@ async function test_should_rollback_on_error() {
     let threw = false;
     try {
       store.transaction(() => {
-        store.insertNode({ name: 'Temp', kind: 'class', visibility: 'public', fileId, startLine: 1, endLine: 5, parentId: null, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null });
+        store.insertNode({ name: 'Temp', kind: 'class', visibility: 'public', fileId, startLine: 1, endLine: 5, parentId: null, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null, gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null });
         throw new Error('simulated failure');
       });
     } catch { threw = true; }
@@ -262,13 +266,13 @@ async function test_should_rebuild_on_version_mismatch() {
     const store1 = GraphStore.open(dbPath);
     store1.setSchemaVersion(999);
     const fileId = store1.upsertFile('/old.java', 'old', 'java', 'legacy');
-    store1.insertNode({ name: 'OldClass', kind: 'class', visibility: 'public', fileId, startLine: 1, endLine: 5, parentId: null, module: 'legacy', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null });
+    store1.insertNode({ name: 'OldClass', kind: 'class', visibility: 'public', fileId, startLine: 1, endLine: 5, parentId: null, module: 'legacy', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null, gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null });
     store1.close();
 
     // Re-open — should detect mismatch and rebuild
     const store2 = GraphStore.open(dbPath);
     const version = store2.schemaVersion();
-    assert('rebuild: version reset to current', version === 3, `got ${version}`);
+    assert('rebuild: version reset to current', version === 4, `got ${version}`);
     const results = store2.searchSymbols('OldClass');
     assert('rebuild: old data gone', results.length === 0, `got ${results.length}`);
     store2.close();
@@ -496,8 +500,8 @@ async function test_should_return_graph_stats() {
     const store = GraphStore.open(dbPath);
     const f1 = store.upsertFile('/a.java', 'a', 'java', 'api');
     const f2 = store.upsertFile('/b.java', 'b', 'java', 'api');
-    const n1 = store.insertNode({ name: 'A', kind: 'class', visibility: 'public', fileId: f1, startLine: 1, endLine: 10, parentId: null, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null });
-    const n2 = store.insertNode({ name: 'B', kind: 'class', visibility: 'public', fileId: f2, startLine: 1, endLine: 10, parentId: null, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null });
+    const n1 = store.insertNode({ name: 'A', kind: 'class', visibility: 'public', fileId: f1, startLine: 1, endLine: 10, parentId: null, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null, gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null });
+    const n2 = store.insertNode({ name: 'B', kind: 'class', visibility: 'public', fileId: f2, startLine: 1, endLine: 10, parentId: null, module: 'api', qualified: null, signature: null, docComment: null, extendsName: null, implementsNames: null, gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null });
     store.insertEdge(n1, n2, 'calls', null);
 
     const stats = store.getStats();
@@ -591,6 +595,7 @@ async function test_fts5_update_trigger() {
       signature: 'public void doWork()', docComment: null,
       fileId, startLine: 1, endLine: 10, parentId: null, module: 'api',
       extendsName: null, implementsNames: null,
+      gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null,
     });
 
     // Verify FTS finds old signature
@@ -603,6 +608,7 @@ async function test_fts5_update_trigger() {
       signature: 'public String doWork(Request req)', docComment: null,
       fileId, startLine: 1, endLine: 10, parentId: null, module: 'api',
       extendsName: null, implementsNames: null,
+      gqlOperationType: null, gqlFields: null, apiMethod: null, apiPath: null,
     });
 
     // FTS should find the new signature term "Request"
@@ -675,7 +681,7 @@ async function test_rest_endpoint_ingestion() {
     assert('rest-ingest: getUser has endpoint', getEndpoints.length === 1, `got ${getEndpoints.length}`);
     if (getEndpoints.length > 0) {
       assert('rest-ingest: method is GET', getEndpoints[0].method === 'GET', `got "${getEndpoints[0].method}"`);
-      assert('rest-ingest: path is /{id}', getEndpoints[0].path === '/{id}', `got "${getEndpoints[0].path}"`);
+      assert('rest-ingest: path is /api/users/{id} (class prefix composed)', getEndpoints[0].path === '/api/users/{id}', `got "${getEndpoints[0].path}"`);
     }
 
     // createUser should have a POST endpoint

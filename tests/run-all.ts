@@ -10,6 +10,7 @@ import { testUrlFetcher } from './unit/url-fetcher.test.js';
 import { testGraphStore } from './unit/graph-store.test.js';
 import { testEdgeResolvers } from './unit/edge-resolvers.test.js';
 import { testGraphTraversal } from './unit/graph-traversal.test.js';
+import { testCrossLanguage } from './unit/cross-language.test.js';
 
 // Integration tests
 import { testAnalyzeProject } from './integration/analyze-project.test.js';
@@ -45,6 +46,7 @@ async function run() {
   await testGraphStore();
   await testEdgeResolvers();
   await testGraphTraversal();
+  await testCrossLanguage();
 
   // Integration
   await testAnalyzeProject();

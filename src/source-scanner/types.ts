@@ -9,6 +9,10 @@ export interface ExtractedSymbol {
   implements?: string[];
   callSites?: Array<{ target: string; receiver?: string }>;
   jsxElements?: string[];
+  gqlOperationType?: 'query' | 'mutation' | 'subscription';
+  gqlFields?: string[];
+  apiMethod?: string;
+  apiPath?: string;
   location: { startLine: number; endLine: number };
   children?: ExtractedSymbol[];
 }
@@ -54,6 +58,13 @@ export interface RestEndpoint {
   path: string;
   handler: string;
   file: string;
+}
+
+export interface GqlResolverInfo {
+  methodName: string;
+  fieldName: string;
+  parentType: string;
+  operationType: 'query' | 'mutation' | 'subscription';
 }
 
 export type SupportedLanguage = 'java' | 'typescript' | 'tsx' | 'scala' | 'graphql' | 'javascript';

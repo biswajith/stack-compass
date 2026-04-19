@@ -1,11 +1,12 @@
 import type { Tree, Node } from './parser.js';
-import type { ExtractedSymbol, SymbolKind, RestEndpoint } from './types.js';
+import type { ExtractedSymbol, SymbolKind, RestEndpoint, GqlResolverInfo } from './types.js';
 
-export function extractJavaSymbols(tree: Tree, source: string): { symbols: ExtractedSymbol[]; packageName?: string; imports: string[]; restEndpoints: RestEndpoint[] } {
+export function extractJavaSymbols(tree: Tree, source: string): { symbols: ExtractedSymbol[]; packageName?: string; imports: string[]; restEndpoints: RestEndpoint[]; gqlResolvers: GqlResolverInfo[] } {
   const root = tree.rootNode;
   const symbols: ExtractedSymbol[] = [];
   const imports: string[] = [];
   const restEndpoints: RestEndpoint[] = [];
+  const gqlResolvers: GqlResolverInfo[] = [];
   let packageName: string | undefined;
 
   for (const child of root.children) {
@@ -18,15 +19,15 @@ export function extractJavaSymbols(tree: Tree, source: string): { symbols: Extra
       if (path) imports.push(path.text);
     }
     if (child.type === 'class_declaration' || child.type === 'interface_declaration' || child.type === 'enum_declaration' || child.type === 'annotation_type_declaration') {
-      const sym = extractClassLike(child, source, restEndpoints);
+      const sym = extractClassLike(child, source, restEndpoints, gqlResolvers);
       if (sym) symbols.push(sym);
     }
   }
 
-  return { symbols, packageName, imports, restEndpoints };
+  return { symbols, packageName, imports, restEndpoints, gqlResolvers };
 }
 
-function extractClassLike(node: Node, source: string, restEndpoints: RestEndpoint[]): ExtractedSymbol | null {
+function extractClassLike(node: Node, source: string, restEndpoints: RestEndpoint[], gqlResolvers: GqlResolverInfo[]): ExtractedSymbol | null {
   const nameNode = node.childForFieldName('name');
   if (!nameNode) return null;
 
@@ -40,6 +41,9 @@ function extractClassLike(node: Node, source: string, restEndpoints: RestEndpoin
   const implementsList = extractInterfaces(node);
   const children: ExtractedSymbol[] = [];
 
+  // Extract class-level @RequestMapping prefix for REST path composition
+  const classPrefix = extractClassRequestMappingPrefix(annotations);
+
   const body = node.childForFieldName('body');
   if (body) {
     for (const member of body.children) {
@@ -47,8 +51,10 @@ function extractClassLike(node: Node, source: string, restEndpoints: RestEndpoin
         const methodSym = extractMethod(member, source);
         if (methodSym) {
           children.push(methodSym);
-          const ep = extractRestEndpoint(member, nameNode.text);
+          const ep = extractRestEndpoint(member, nameNode.text, classPrefix);
           if (ep) restEndpoints.push(ep);
+          const gqlInfo = extractGqlResolverInfo(member);
+          if (gqlInfo) gqlResolvers.push(gqlInfo);
         }
       }
       if (member.type === 'field_declaration') {
@@ -230,7 +236,17 @@ const REQUEST_MAPPING_METHODS = new Set([
   '@RequestMapping', '@GetMapping', '@PostMapping', '@PutMapping', '@DeleteMapping', '@PatchMapping',
 ]);
 
-function extractRestEndpoint(node: Node, className: string): RestEndpoint | null {
+function extractClassRequestMappingPrefix(classAnnotations: string[]): string {
+  for (const ann of classAnnotations) {
+    if (ann.startsWith('@RequestMapping')) {
+      const pathMatch = ann.match(/(?:value\s*=\s*|path\s*=\s*)?["']([^"']+)["']/);
+      if (pathMatch) return pathMatch[1].replace(/\/$/, '');
+    }
+  }
+  return '';
+}
+
+function extractRestEndpoint(node: Node, className: string, classPrefix: string = ''): RestEndpoint | null {
   const annotations = extractAnnotations(node);
   for (const ann of annotations) {
     for (const mapping of REQUEST_MAPPING_METHODS) {
@@ -240,10 +256,11 @@ function extractRestEndpoint(node: Node, className: string): RestEndpoint | null
           : mapping.replace('@', '').replace('Mapping', '').toUpperCase();
 
         const pathMatch = ann.match(/(?:value\s*=\s*|path\s*=\s*)?["']([^"']+)["']/);
-        const path = pathMatch?.[1] ?? '/';
+        const methodPath = pathMatch?.[1] ?? '/';
+        const fullPath = classPrefix + methodPath;
         const handlerName = node.childForFieldName('name')?.text ?? 'unknown';
 
-        return { method, path, handler: `${className}.${handlerName}`, file: '' };
+        return { method, path: fullPath, handler: `${className}.${handlerName}`, file: '' };
       }
     }
   }
@@ -253,4 +270,45 @@ function extractRestEndpoint(node: Node, className: string): RestEndpoint | null
 function extractMappingMethod(annotation: string): string | null {
   const methodMatch = annotation.match(/method\s*=\s*RequestMethod\.(\w+)/);
   return methodMatch ? methodMatch[1] : null;
+}
+
+// ── GQL resolver annotation extraction ──────────────────────────────────
+
+const GQL_RESOLVER_ANNOTATIONS: Record<string, { defaultParentType: string; operationType: 'query' | 'mutation' | 'subscription' }> = {
+  '@DgsQuery':        { defaultParentType: 'Query',        operationType: 'query' },
+  '@DgsMutation':     { defaultParentType: 'Mutation',     operationType: 'mutation' },
+  '@QueryMapping':    { defaultParentType: 'Query',        operationType: 'query' },
+  '@MutationMapping': { defaultParentType: 'Mutation',     operationType: 'mutation' },
+  '@DgsData':         { defaultParentType: 'Query',        operationType: 'query' },
+  '@SchemaMapping':   { defaultParentType: 'Query',        operationType: 'query' },
+};
+
+function extractGqlResolverInfo(node: Node): GqlResolverInfo | null {
+  const annotations = extractAnnotations(node);
+  const methodName = node.childForFieldName('name')?.text ?? 'unknown';
+
+  for (const ann of annotations) {
+    for (const [prefix, defaults] of Object.entries(GQL_RESOLVER_ANNOTATIONS)) {
+      if (!ann.startsWith(prefix)) continue;
+
+      let fieldName = methodName;
+      let parentType = defaults.defaultParentType;
+      let operationType = defaults.operationType;
+
+      // Extract explicit field name from annotation params
+      const fieldMatch = ann.match(/field\s*=\s*["']([^"']+)["']/);
+      if (fieldMatch) fieldName = fieldMatch[1];
+
+      // Extract explicit parentType/typeName
+      const parentMatch = ann.match(/(?:parentType|typeName)\s*=\s*["']([^"']+)["']/);
+      if (parentMatch) {
+        parentType = parentMatch[1];
+        if (parentType === 'Mutation') operationType = 'mutation';
+        else if (parentType === 'Subscription') operationType = 'subscription';
+      }
+
+      return { methodName, fieldName, parentType, operationType };
+    }
+  }
+  return null;
 }

@@ -5,7 +5,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { ScannedModule, ScannedFile, ExtractedSymbol } from '../source-scanner/types.js';
 
-const CURRENT_SCHEMA_VERSION = 3;
+const CURRENT_SCHEMA_VERSION = 4;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
@@ -36,6 +36,10 @@ export interface NodeRow {
   module: string | null;
   extends_name: string | null;
   implements_names: string | null;
+  gql_operation_type: string | null;
+  gql_fields: string | null;
+  api_method: string | null;
+  api_path: string | null;
 }
 
 export interface EdgeRow {
@@ -67,6 +71,10 @@ export interface NodeInsert {
   module: string | null;
   extendsName: string | null;
   implementsNames: string | null;
+  gqlOperationType: string | null;
+  gqlFields: string | null;
+  apiMethod: string | null;
+  apiPath: string | null;
 }
 
 export interface GraphStats {
@@ -139,6 +147,42 @@ function extractRestEndpoint(annotationName: string, value: string | null): { me
   const method = REST_ANNOTATION_MAP[annotationName];
   if (!method) return null;
   return { method, path: value ?? '/' };
+}
+
+const GQL_ANNOTATION_MAP: Record<string, { defaultParentType: string; operationType: string }> = {
+  DgsQuery:        { defaultParentType: 'Query',    operationType: 'query' },
+  DgsMutation:     { defaultParentType: 'Mutation',  operationType: 'mutation' },
+  QueryMapping:    { defaultParentType: 'Query',    operationType: 'query' },
+  MutationMapping: { defaultParentType: 'Mutation',  operationType: 'mutation' },
+  DgsData:         { defaultParentType: 'Query',    operationType: 'query' },
+  SchemaMapping:   { defaultParentType: 'Query',    operationType: 'query' },
+};
+
+function extractGqlResolver(
+  annotationName: string,
+  value: string | null,
+  methodName: string,
+): { fieldName: string; parentType: string; operationType: string } | null {
+  const config = GQL_ANNOTATION_MAP[annotationName];
+  if (!config) return null;
+
+  let fieldName = methodName;
+  let parentType = config.defaultParentType;
+  let operationType = config.operationType;
+
+  if (value) {
+    const fieldMatch = value.match(/field\s*=\s*["']?([^"',)]+)/);
+    if (fieldMatch) fieldName = fieldMatch[1].trim();
+
+    const parentMatch = value.match(/(?:parentType|typeName)\s*=\s*["']?([^"',)]+)/);
+    if (parentMatch) {
+      parentType = parentMatch[1].trim();
+      if (parentType === 'Mutation') operationType = 'mutation';
+      else if (parentType === 'Subscription') operationType = 'subscription';
+    }
+  }
+
+  return { fieldName, parentType, operationType };
 }
 
 // ── GraphStore ───────────────────────────────────────────────────────────
@@ -278,18 +322,22 @@ export class GraphStore {
     const stmt = this.db.prepare(`
       INSERT INTO nodes (name, qualified, kind, visibility, signature, doc_comment,
                          file_id, start_line, end_line, parent_id, module,
-                         extends_name, implements_names)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         extends_name, implements_names,
+                         gql_operation_type, gql_fields, api_method, api_path)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(file_id, name, kind, start_line) DO UPDATE SET
         qualified=excluded.qualified, visibility=excluded.visibility,
         signature=excluded.signature, doc_comment=excluded.doc_comment,
         end_line=excluded.end_line, parent_id=excluded.parent_id, module=excluded.module,
-        extends_name=excluded.extends_name, implements_names=excluded.implements_names
+        extends_name=excluded.extends_name, implements_names=excluded.implements_names,
+        gql_operation_type=excluded.gql_operation_type, gql_fields=excluded.gql_fields,
+        api_method=excluded.api_method, api_path=excluded.api_path
     `);
     const result = stmt.run(
       n.name, n.qualified, n.kind, n.visibility, n.signature, n.docComment,
       n.fileId, n.startLine, n.endLine, n.parentId, n.module,
       n.extendsName, n.implementsNames,
+      n.gqlOperationType, n.gqlFields, n.apiMethod, n.apiPath,
     );
     if (result.changes > 0 && result.lastInsertRowid) {
       return Number(result.lastInsertRowid);
@@ -395,6 +443,38 @@ export class GraphStore {
     ).run(nodeId, method, endpointPath, fileId);
   }
 
+  // ── GraphQL resolvers ──────────────────────────────────────────────
+
+  insertGqlResolver(nodeId: number, operationType: string, fieldName: string, parentType: string): void {
+    this.db.prepare(
+      'INSERT OR IGNORE INTO graphql_resolvers (node_id, operation_type, field_name, parent_type) VALUES (?, ?, ?, ?)'
+    ).run(nodeId, operationType, fieldName, parentType);
+  }
+
+  getGqlResolvers(): Array<{ node_id: number; operation_type: string; field_name: string; parent_type: string }> {
+    return this.db.prepare('SELECT * FROM graphql_resolvers').all() as any[];
+  }
+
+  // ── GraphQL operations ────────────────────────────────────────────
+
+  insertGqlOperation(nodeId: number, operationType: string, fields: string): void {
+    this.db.prepare(
+      'INSERT OR IGNORE INTO graphql_operations (node_id, operation_type, fields) VALUES (?, ?, ?)'
+    ).run(nodeId, operationType, fields);
+  }
+
+  getGqlOperations(): Array<{ node_id: number; operation_type: string; fields: string }> {
+    return this.db.prepare('SELECT * FROM graphql_operations').all() as any[];
+  }
+
+  // ── API calls ─────────────────────────────────────────────────────
+
+  getApiCalls(): Array<{ node_id: number; method: string; path: string }> {
+    return this.db.prepare(
+      "SELECT n.id AS node_id, n.api_method AS method, n.api_path AS path FROM nodes n WHERE n.kind = 'api-call'"
+    ).all() as any[];
+  }
+
   // ── FTS5 Search ──────────────────────────────────────────────────────
 
   searchSymbols(query: string, opts?: { kind?: string; module?: string; limit?: number }): SearchResult[] {
@@ -457,8 +537,19 @@ export class GraphStore {
     }
 
     for (const sym of file.symbols) {
-      this.ingestSymbol(sym, fileId, null, moduleName, file.packageName);
+      this.ingestSymbol(sym, fileId, null, moduleName, file.packageName, '');
     }
+  }
+
+  private extractClassRestPrefix(sym: ExtractedSymbol): string {
+    if (!sym.annotations) return '';
+    for (const raw of sym.annotations) {
+      const parsed = parseAnnotation(raw);
+      if (parsed.name === 'RequestMapping' && parsed.value) {
+        return parsed.value.replace(/\/$/, '');
+      }
+    }
+    return '';
   }
 
   private ingestSymbol(
@@ -467,6 +558,7 @@ export class GraphStore {
     parentId: number | null,
     moduleName: string,
     packageName?: string,
+    classRestPrefix: string = '',
   ): void {
     const qualified = this.buildQualifiedName(sym, packageName, parentId, fileId);
 
@@ -484,7 +576,16 @@ export class GraphStore {
       module: moduleName,
       extendsName: sym.extends ?? null,
       implementsNames: sym.implements ? JSON.stringify(sym.implements) : null,
+      gqlOperationType: sym.gqlOperationType ?? null,
+      gqlFields: sym.gqlFields ? JSON.stringify(sym.gqlFields) : null,
+      apiMethod: sym.apiMethod ?? null,
+      apiPath: sym.apiPath ?? null,
     });
+
+    // Populate graphql_operations table for gql-operation nodes
+    if (sym.kind === 'gql-operation' && sym.gqlOperationType && sym.gqlFields) {
+      this.insertGqlOperation(nodeId, sym.gqlOperationType, JSON.stringify(sym.gqlFields));
+    }
 
     if (sym.annotations) {
       for (const raw of sym.annotations) {
@@ -493,7 +594,13 @@ export class GraphStore {
 
         const restInfo = extractRestEndpoint(parsed.name, parsed.value);
         if (restInfo) {
-          this.insertRestEndpoint(nodeId, restInfo.method, restInfo.path, fileId);
+          const fullPath = classRestPrefix + restInfo.path;
+          this.insertRestEndpoint(nodeId, restInfo.method, fullPath, fileId);
+        }
+
+        const gqlInfo = extractGqlResolver(parsed.name, parsed.value, sym.name);
+        if (gqlInfo) {
+          this.insertGqlResolver(nodeId, gqlInfo.operationType, gqlInfo.fieldName, gqlInfo.parentType);
         }
       }
     }
@@ -511,8 +618,9 @@ export class GraphStore {
     }
 
     if (sym.children) {
+      const childPrefix = sym.kind === 'class' ? this.extractClassRestPrefix(sym) : classRestPrefix;
       for (const child of sym.children) {
-        this.ingestSymbol(child, fileId, nodeId, moduleName, packageName);
+        this.ingestSymbol(child, fileId, nodeId, moduleName, packageName, childPrefix);
       }
     }
   }

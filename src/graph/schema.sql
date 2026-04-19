@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS nodes (
   module          TEXT,
   extends_name    TEXT,
   implements_names TEXT,
+  gql_operation_type TEXT,
+  gql_fields      TEXT,
+  api_method      TEXT,
+  api_path        TEXT,
   UNIQUE(file_id, name, kind, start_line)
 );
 
