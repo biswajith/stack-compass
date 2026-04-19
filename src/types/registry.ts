@@ -53,8 +53,8 @@ export const FRAMEWORK_DOCS: Record<string, FrameworkDocEntry> = {
   'typescript': { versions: [{ github: 'microsoft/TypeScript', description: 'Typed superset of JavaScript' }] },
 
   'tailwindcss': { versions: [
-    { minMajor: 0, maxMajor: 4, llmsTxt: 'https://tailwindcss.com/llms.txt', github: 'tailwindlabs/tailwindcss', description: 'Tailwind CSS <=3 — config-based, JIT mode, purge' },
-    { minMajor: 4, llmsTxt: 'https://tailwindcss.com/llms.txt', github: 'tailwindlabs/tailwindcss', description: 'Tailwind CSS 4 — CSS-first config, Oxide engine, automatic content detection' },
+    { minMajor: 0, maxMajor: 4, github: 'tailwindlabs/tailwindcss', description: 'Tailwind CSS <=3 — config-based, JIT mode, purge' },
+    { minMajor: 4, github: 'tailwindlabs/tailwindcss', description: 'Tailwind CSS 4 — CSS-first config, Oxide engine, automatic content detection' },
   ]},
 
   'spring-boot': { versions: [

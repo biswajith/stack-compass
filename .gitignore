@@ -26,3 +26,6 @@ npm-debug.log*
 # Lock files (keep package-lock.json, ignore others)
 yarn.lock
 pnpm-lock.yaml
+
+# Runtime graph DB
+.stack-compass/

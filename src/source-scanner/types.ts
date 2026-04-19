@@ -14,7 +14,8 @@ export type SymbolKind =
   | 'method' | 'constructor' | 'field' | 'constant'
   | 'function' | 'type' | 'trait' | 'object' | 'case-class'
   | 'component' | 'hook'
-  | 'query' | 'mutation' | 'subscription' | 'graphql-type' | 'graphql-input' | 'graphql-enum';
+  | 'query' | 'mutation' | 'subscription' | 'graphql-type' | 'graphql-input' | 'graphql-enum'
+  | 'gql-operation' | 'api-call';
 
 export interface ScannedFile {
   filePath: string;

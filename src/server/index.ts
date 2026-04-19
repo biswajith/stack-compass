@@ -9,6 +9,7 @@ import { registerDocTools } from './doc-tools.js';
 import { registerResolveTools } from './resolve-tools.js';
 import { registerFrameworkTools } from './framework-tools.js';
 import { registerSourceScanTools } from './source-scan-tools.js';
+import { registerGraphTools } from './graph-tools.js';
 
 export function createServer() {
   const server = new McpServer({ name: APP_NAME, version: APP_VERSION }, { capabilities: { tools: {} } });
@@ -22,6 +23,8 @@ export function createServer() {
     internalPatterns: { ...DEFAULT_PATTERNS },
     scannedModules: new Map(),
     detectedInternalDeps: [],
+    graphStore: null,
+    graphDbPath: null,
   };
 
   registerAnalysisTools(ctx);
@@ -29,6 +32,13 @@ export function createServer() {
   registerResolveTools(ctx);
   registerFrameworkTools(ctx);
   registerSourceScanTools(ctx);
+  registerGraphTools(ctx);
+
+  const shutdown = () => {
+    try { ctx.graphStore?.close(); } catch { /* ok */ }
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 
   return server;
 }
