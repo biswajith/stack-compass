@@ -5,6 +5,7 @@ import { ServerContext } from './context.js';
 import { moduleToDocSections, formatModuleMarkdown } from '../source-scanner/index.js';
 import { formatTreeIndex } from './formatters.js';
 import { GraphStore } from '../graph/index.js';
+import { resolveAllEdges } from '../graph/resolvers/index.js';
 
 /**
  * Strip absolute path prefixes from a string, leaving only project-relative paths.
@@ -165,6 +166,9 @@ export function registerSourceScanTools(ctx: ServerContext): void {
         }
 
         if (ctx.graphStore) {
+          try { resolveAllEdges(ctx.graphStore); } catch (re) {
+            scanWarnings.push(`Edge resolution failed: ${re instanceof Error ? re.message : String(re)}`);
+          }
           const gs = ctx.graphStore.getStats();
           r += `## Knowledge Graph\n\n`;
           r += `- Nodes: ${gs.totalNodes} | Edges: ${gs.totalEdges} | Files: ${gs.totalFiles}\n`;

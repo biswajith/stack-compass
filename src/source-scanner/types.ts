@@ -5,6 +5,10 @@ export interface ExtractedSymbol {
   signature?: string;
   docComment?: string;
   annotations?: string[];
+  extends?: string;
+  implements?: string[];
+  callSites?: Array<{ target: string; receiver?: string }>;
+  jsxElements?: string[];
   location: { startLine: number; endLine: number };
   children?: ExtractedSymbol[];
 }

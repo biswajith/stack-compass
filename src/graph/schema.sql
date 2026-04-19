@@ -23,8 +23,10 @@ CREATE TABLE IF NOT EXISTS nodes (
   file_id     INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
   start_line  INTEGER NOT NULL,
   end_line    INTEGER NOT NULL,
-  parent_id   INTEGER REFERENCES nodes(id) ON DELETE CASCADE,
-  module      TEXT,
+  parent_id       INTEGER REFERENCES nodes(id) ON DELETE CASCADE,
+  module          TEXT,
+  extends_name    TEXT,
+  implements_names TEXT,
   UNIQUE(file_id, name, kind, start_line)
 );
 
@@ -44,6 +46,13 @@ CREATE TABLE IF NOT EXISTS annotations (
   name    TEXT NOT NULL,
   value   TEXT,
   raw     TEXT
+);
+
+-- Import declarations per file (used by import resolver)
+CREATE TABLE IF NOT EXISTS file_imports (
+  file_id     INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  import_path TEXT NOT NULL,
+  PRIMARY KEY (file_id, import_path)
 );
 
 -- REST endpoints (denormalized for fast cross-language matching)
@@ -72,6 +81,21 @@ CREATE TABLE IF NOT EXISTS graphql_operations (
   operation_type TEXT NOT NULL,
   fields         TEXT NOT NULL,
   PRIMARY KEY (node_id)
+);
+
+-- Call sites extracted from method/function bodies (used by call resolver)
+CREATE TABLE IF NOT EXISTS call_sites (
+  id       INTEGER PRIMARY KEY,
+  node_id  INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  target   TEXT NOT NULL,
+  receiver TEXT
+);
+
+-- JSX element usages in React components (used by react resolver)
+CREATE TABLE IF NOT EXISTS jsx_usages (
+  node_id     INTEGER NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  element_name TEXT NOT NULL,
+  PRIMARY KEY (node_id, element_name)
 );
 
 -- Full-text search on symbol names and signatures
@@ -112,3 +136,7 @@ CREATE INDEX IF NOT EXISTS idx_annotations_name ON annotations(name);
 CREATE INDEX IF NOT EXISTS idx_rest_path ON rest_endpoints(path);
 CREATE INDEX IF NOT EXISTS idx_gql_field ON graphql_resolvers(field_name);
 CREATE INDEX IF NOT EXISTS idx_gql_parent ON graphql_resolvers(parent_type, field_name);
+CREATE INDEX IF NOT EXISTS idx_call_sites_node ON call_sites(node_id);
+CREATE INDEX IF NOT EXISTS idx_call_sites_target ON call_sites(target);
+CREATE INDEX IF NOT EXISTS idx_jsx_usages_node ON jsx_usages(node_id);
+CREATE INDEX IF NOT EXISTS idx_jsx_usages_element ON jsx_usages(element_name);

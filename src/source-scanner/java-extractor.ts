@@ -36,6 +36,8 @@ function extractClassLike(node: Node, source: string, restEndpoints: RestEndpoin
 
   const annotations = extractAnnotations(node);
   const docComment = extractDocComment(node, source);
+  const extendsName = extractSuperclass(node);
+  const implementsList = extractInterfaces(node);
   const children: ExtractedSymbol[] = [];
 
   const body = node.childForFieldName('body');
@@ -70,6 +72,8 @@ function extractClassLike(node: Node, source: string, restEndpoints: RestEndpoin
     visibility,
     annotations,
     docComment,
+    extends: extendsName,
+    implements: implementsList.length > 0 ? implementsList : undefined,
     location: { startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1 },
     children: children.length > 0 ? children : undefined,
   };
@@ -89,6 +93,8 @@ function extractMethod(node: Node, source: string): ExtractedSymbol | null {
   signature += (nameNode?.text ?? '<init>');
   if (params) signature += params.text;
 
+  const callSites = extractCallSites(node);
+
   return {
     name: nameNode?.text ?? '<init>',
     kind,
@@ -96,8 +102,31 @@ function extractMethod(node: Node, source: string): ExtractedSymbol | null {
     signature,
     annotations: extractAnnotations(node),
     docComment: extractDocComment(node, source),
+    callSites: callSites.length > 0 ? callSites : undefined,
     location: { startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1 },
   };
+}
+
+function extractCallSites(node: Node): Array<{ target: string; receiver?: string }> {
+  const sites: Array<{ target: string; receiver?: string }> = [];
+  walkForCalls(node, sites);
+  return sites;
+}
+
+function walkForCalls(node: Node, sites: Array<{ target: string; receiver?: string }>): void {
+  if (node.type === 'method_invocation') {
+    const obj = node.childForFieldName('object');
+    const name = node.childForFieldName('name');
+    if (name) {
+      sites.push({
+        target: name.text,
+        receiver: obj?.text,
+      });
+    }
+  }
+  for (const child of node.children) {
+    walkForCalls(child, sites);
+  }
 }
 
 function extractField(node: Node, source: string): ExtractedSymbol | null {
@@ -117,6 +146,34 @@ function extractField(node: Node, source: string): ExtractedSymbol | null {
     docComment: extractDocComment(node, source),
     location: { startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1 },
   };
+}
+
+function extractSuperclass(node: Node): string | undefined {
+  const superclass = node.childForFieldName('superclass');
+  if (!superclass) return undefined;
+
+  // Direct type_identifier (no generics)
+  const directType = superclass.children.find(c => c.type === 'type_identifier');
+  if (directType) return directType.text;
+
+  // generic_type → type_identifier (strip type arguments)
+  const genericType = superclass.children.find(c => c.type === 'generic_type');
+  if (genericType) {
+    const inner = genericType.children.find(c => c.type === 'type_identifier');
+    return inner?.text;
+  }
+
+  return undefined;
+}
+
+function extractInterfaces(node: Node): string[] {
+  const ifaces = node.childForFieldName('interfaces');
+  if (!ifaces) return [];
+  const typeList = ifaces.children.find(c => c.type === 'type_list');
+  if (!typeList) return [];
+  return typeList.children
+    .filter(c => c.type === 'type_identifier' || c.type === 'generic_type')
+    .map(c => c.type === 'generic_type' ? (c.children.find(g => g.type === 'type_identifier')?.text ?? c.text) : c.text);
 }
 
 function mapJavaKind(type: string): SymbolKind {

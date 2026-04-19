@@ -5,7 +5,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { ScannedModule, ScannedFile, ExtractedSymbol } from '../source-scanner/types.js';
 
-const CURRENT_SCHEMA_VERSION = 1;
+const CURRENT_SCHEMA_VERSION = 3;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
@@ -34,6 +34,8 @@ export interface NodeRow {
   end_line: number;
   parent_id: number | null;
   module: string | null;
+  extends_name: string | null;
+  implements_names: string | null;
 }
 
 export interface EdgeRow {
@@ -63,6 +65,8 @@ export interface NodeInsert {
   endLine: number;
   parentId: number | null;
   module: string | null;
+  extendsName: string | null;
+  implementsNames: string | null;
 }
 
 export interface GraphStats {
@@ -245,21 +249,47 @@ export class GraphStore {
     this.db.prepare('DELETE FROM files WHERE id = ?').run(fileId);
   }
 
+  insertFileImport(fileId: number, importPath: string): void {
+    this.db.prepare(
+      'INSERT OR IGNORE INTO file_imports (file_id, import_path) VALUES (?, ?)'
+    ).run(fileId, importPath);
+  }
+
+  getFileImports(fileId: number): string[] {
+    return (this.db.prepare('SELECT import_path FROM file_imports WHERE file_id = ?').all(fileId) as Array<{ import_path: string }>)
+      .map(r => r.import_path);
+  }
+
+  getAllFiles(): FileRow[] {
+    return this.db.prepare('SELECT * FROM files').all() as FileRow[];
+  }
+
+  getNodesByFileId(fileId: number): NodeRow[] {
+    return this.db.prepare('SELECT * FROM nodes WHERE file_id = ? AND parent_id IS NULL').all(fileId) as NodeRow[];
+  }
+
+  getAllNodesByFileId(fileId: number): NodeRow[] {
+    return this.db.prepare('SELECT * FROM nodes WHERE file_id = ?').all(fileId) as NodeRow[];
+  }
+
   // ── Nodes ────────────────────────────────────────────────────────────
 
   insertNode(n: NodeInsert): number {
     const stmt = this.db.prepare(`
       INSERT INTO nodes (name, qualified, kind, visibility, signature, doc_comment,
-                         file_id, start_line, end_line, parent_id, module)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         file_id, start_line, end_line, parent_id, module,
+                         extends_name, implements_names)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(file_id, name, kind, start_line) DO UPDATE SET
         qualified=excluded.qualified, visibility=excluded.visibility,
         signature=excluded.signature, doc_comment=excluded.doc_comment,
-        end_line=excluded.end_line, parent_id=excluded.parent_id, module=excluded.module
+        end_line=excluded.end_line, parent_id=excluded.parent_id, module=excluded.module,
+        extends_name=excluded.extends_name, implements_names=excluded.implements_names
     `);
     const result = stmt.run(
       n.name, n.qualified, n.kind, n.visibility, n.signature, n.docComment,
       n.fileId, n.startLine, n.endLine, n.parentId, n.module,
+      n.extendsName, n.implementsNames,
     );
     if (result.changes > 0 && result.lastInsertRowid) {
       return Number(result.lastInsertRowid);
@@ -316,11 +346,48 @@ export class GraphStore {
     return this.db.prepare(sql).all(...params) as NodeRow[];
   }
 
+  getNodesByNameSuffix(suffix: string): NodeRow[] {
+    return this.db.prepare(
+      'SELECT * FROM nodes WHERE name LIKE ? AND kind IN (\'class\', \'interface\', \'component\')'
+    ).all(`%${suffix}`) as NodeRow[];
+  }
+
   getRestEndpointsByNodeId(nodeId: number): Array<{ method: string; path: string }> {
     return this.db.prepare(
       'SELECT method, path FROM rest_endpoints WHERE node_id = ?'
     ).all(nodeId) as Array<{ method: string; path: string }>;
   }
+
+  // ── Call sites ──────────────────────────────────────────────────────
+
+  insertCallSite(nodeId: number, target: string, receiver: string | null): void {
+    this.db.prepare(
+      'INSERT INTO call_sites (node_id, target, receiver) VALUES (?, ?, ?)'
+    ).run(nodeId, target, receiver);
+  }
+
+  getCallSites(nodeId: number): Array<{ target: string; receiver: string | null }> {
+    return this.db.prepare(
+      'SELECT target, receiver FROM call_sites WHERE node_id = ?'
+    ).all(nodeId) as Array<{ target: string; receiver: string | null }>;
+  }
+
+  // ── JSX usages ────────────────────────────────────────────────────
+
+  insertJsxUsage(nodeId: number, elementName: string): void {
+    this.db.prepare(
+      'INSERT OR IGNORE INTO jsx_usages (node_id, element_name) VALUES (?, ?)'
+    ).run(nodeId, elementName);
+  }
+
+  getJsxUsages(nodeId: number): string[] {
+    const rows = this.db.prepare(
+      'SELECT element_name FROM jsx_usages WHERE node_id = ?'
+    ).all(nodeId) as Array<{ element_name: string }>;
+    return rows.map(r => r.element_name);
+  }
+
+  // ── REST endpoints ────────────────────────────────────────────────
 
   insertRestEndpoint(nodeId: number, method: string, endpointPath: string, fileId: number): void {
     this.db.prepare(
@@ -383,6 +450,12 @@ export class GraphStore {
 
     const fileId = this.upsertFile(file.filePath, hash, file.language, moduleName);
 
+    if (file.imports) {
+      for (const imp of file.imports) {
+        this.insertFileImport(fileId, imp);
+      }
+    }
+
     for (const sym of file.symbols) {
       this.ingestSymbol(sym, fileId, null, moduleName, file.packageName);
     }
@@ -409,6 +482,8 @@ export class GraphStore {
       endLine: sym.location.endLine,
       parentId,
       module: moduleName,
+      extendsName: sym.extends ?? null,
+      implementsNames: sym.implements ? JSON.stringify(sym.implements) : null,
     });
 
     if (sym.annotations) {
@@ -420,6 +495,18 @@ export class GraphStore {
         if (restInfo) {
           this.insertRestEndpoint(nodeId, restInfo.method, restInfo.path, fileId);
         }
+      }
+    }
+
+    if (sym.callSites) {
+      for (const cs of sym.callSites) {
+        this.insertCallSite(nodeId, cs.target, cs.receiver ?? null);
+      }
+    }
+
+    if (sym.jsxElements) {
+      for (const el of sym.jsxElements) {
+        this.insertJsxUsage(nodeId, el);
       }
     }
 

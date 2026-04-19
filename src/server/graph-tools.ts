@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import { z } from 'zod/v3';
 import { ServerContext } from './context.js';
+import { getCallers, getCallees, getImpact, buildContext } from '../graph/traversal.js';
 
 function requireGraphStore(ctx: ServerContext) {
   if (!ctx.graphStore) {
@@ -204,6 +205,151 @@ export function registerGraphTools(ctx: ServerContext): void {
       }
 
       return { content: [{ type: 'text' as const, text: parts.join('\n---\n\n') }] };
+    }
+  );
+
+  // ── get-callers ─────────────────────────────────────────────────────
+
+  ctx.server.tool(
+    'get-callers',
+    'Find all callers of a symbol. Traverses call edges in reverse up to the specified depth. Returns the call chain showing who calls this symbol and who calls those callers.',
+    {
+      symbolName: z.string().describe('Symbol name to find callers for, e.g. "createUser"'),
+      module: z.string().optional().describe('Module name to disambiguate'),
+      depth: z.number().optional().describe('Max traversal depth (default 2)'),
+    },
+    async ({ symbolName, depth }) => {
+      const check = requireGraphStore(ctx);
+      if (!check.ok) return check.error;
+
+      const entries = getCallers(check.store, symbolName, depth ?? 2);
+
+      if (entries.length === 0) {
+        const nodes = check.store.getNodesByName(symbolName);
+        if (nodes.length === 0) {
+          return { content: [{ type: 'text' as const, text: `Symbol "${symbolName}" not found in the knowledge graph.` }] };
+        }
+        return { content: [{ type: 'text' as const, text: `No callers found for "${symbolName}".` }] };
+      }
+
+      let r = `# Callers of "${symbolName}"\n\n`;
+      r += `| Name | Kind | File | Line | Edge | Depth |\n`;
+      r += `|------|------|------|------|------|-------|\n`;
+      for (const e of entries) {
+        r += `| ${e.name} | ${e.kind} | ${e.file} | ${e.line} | ${e.edgeKind} | ${e.depth} |\n`;
+      }
+
+      return { content: [{ type: 'text' as const, text: r }] };
+    }
+  );
+
+  // ── get-callees ─────────────────────────────────────────────────────
+
+  ctx.server.tool(
+    'get-callees',
+    'Find all callees of a symbol. Traverses call edges forward up to the specified depth. Returns the call chain showing what this symbol calls and what those callees call.',
+    {
+      symbolName: z.string().describe('Symbol name to find callees for, e.g. "handlePost"'),
+      module: z.string().optional().describe('Module name to disambiguate'),
+      depth: z.number().optional().describe('Max traversal depth (default 2)'),
+    },
+    async ({ symbolName, depth }) => {
+      const check = requireGraphStore(ctx);
+      if (!check.ok) return check.error;
+
+      const entries = getCallees(check.store, symbolName, depth ?? 2);
+
+      if (entries.length === 0) {
+        const nodes = check.store.getNodesByName(symbolName);
+        if (nodes.length === 0) {
+          return { content: [{ type: 'text' as const, text: `Symbol "${symbolName}" not found in the knowledge graph.` }] };
+        }
+        return { content: [{ type: 'text' as const, text: `No callees found for "${symbolName}".` }] };
+      }
+
+      let r = `# Callees of "${symbolName}"\n\n`;
+      r += `| Name | Kind | File | Line | Edge | Depth |\n`;
+      r += `|------|------|------|------|------|-------|\n`;
+      for (const e of entries) {
+        r += `| ${e.name} | ${e.kind} | ${e.file} | ${e.line} | ${e.edgeKind} | ${e.depth} |\n`;
+      }
+
+      return { content: [{ type: 'text' as const, text: r }] };
+    }
+  );
+
+  // ── get-impact ──────────────────────────────────────────────────────
+
+  ctx.server.tool(
+    'get-impact',
+    'Analyze the blast radius of changing a symbol. Traverses ALL edge types (calls, imports, extends, implements, renders) in reverse to find every symbol affected by a change. Shows direct and transitive impact counts.',
+    {
+      symbolName: z.string().describe('Symbol name to analyze impact for, e.g. "UserService"'),
+      module: z.string().optional().describe('Module name to disambiguate'),
+      depth: z.number().optional().describe('Max traversal depth (default 3)'),
+    },
+    async ({ symbolName, depth }) => {
+      const check = requireGraphStore(ctx);
+      if (!check.ok) return check.error;
+
+      const result = getImpact(check.store, symbolName, depth ?? 3);
+
+      if (result.nodes.length === 0) {
+        const nodes = check.store.getNodesByName(symbolName);
+        if (nodes.length === 0) {
+          return { content: [{ type: 'text' as const, text: `Symbol "${symbolName}" not found in the knowledge graph.` }] };
+        }
+        return { content: [{ type: 'text' as const, text: `No impact found for "${symbolName}" — nothing depends on it.` }] };
+      }
+
+      let r = `# Affected by change to "${symbolName}"\n\n`;
+      r += `**${result.directCount} direct, ${result.transitiveCount} transitive**\n\n`;
+      r += `| Name | Kind | File | Line | Edge | Depth |\n`;
+      r += `|------|------|------|------|------|-------|\n`;
+      for (const n of result.nodes) {
+        r += `| ${n.name} | ${n.kind} | ${n.file} | ${n.line} | ${n.edgeKind} | ${n.depth} |\n`;
+      }
+
+      return { content: [{ type: 'text' as const, text: r }] };
+    }
+  );
+
+  // ── build-context ───────────────────────────────────────────────────
+
+  ctx.server.tool(
+    'build-context',
+    'Task-driven context assembly. Given a natural language task description, finds the most relevant symbols using FTS5 search, expands via graph edges, scores by relevance, and returns source code snippets. The power tool for understanding code before making changes.',
+    {
+      task: z.string().describe('Natural language task description, e.g. "fix the login endpoint"'),
+      maxNodes: z.number().optional().describe('Max symbols to return (default 20)'),
+    },
+    async ({ task, maxNodes }) => {
+      const check = requireGraphStore(ctx);
+      if (!check.ok) return check.error;
+
+      const entries = buildContext(check.store, task, maxNodes ?? 20);
+
+      if (entries.length === 0) {
+        return { content: [{ type: 'text' as const, text: `No relevant symbols found for task: "${task}".` }] };
+      }
+
+      let r = `# Context for: "${task}"\n\n`;
+      r += `Found ${entries.length} relevant symbol${entries.length === 1 ? '' : 's'}:\n\n`;
+
+      for (const e of entries) {
+        r += `### ${e.name} (${e.kind})\n\n`;
+        r += `- **File:** ${e.file}\n`;
+        r += `- **Lines:** ${e.startLine}–${e.endLine}\n`;
+        r += `- **Module:** ${e.module ?? '-'}\n`;
+        r += `- **Score:** ${e.score.toFixed(2)}\n`;
+        if (e.signature) r += `- **Signature:** \`${e.signature}\`\n`;
+
+        if (e.source) {
+          r += `\n\`\`\`\n${e.source}\n\`\`\`\n\n`;
+        }
+      }
+
+      return { content: [{ type: 'text' as const, text: r }] };
     }
   );
 }

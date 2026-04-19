@@ -566,7 +566,7 @@ Output: Relevant symbols with source snippets, organized by relevance:
 2. **Seed search:** Run FTS5 query against `nodes_fts`. Take the top 10 results ranked by FTS5 relevance score.
 3. **Graph expansion:** From each seed node, BFS-walk edges (all types: `calls`, `imports`, `gql_resolves`, `rest_match`, etc.) up to depth 2. Collect all visited nodes.
 4. **Scoring:** Score each node by: `fts_rank * 3 + edge_proximity_score + kind_boost`. Where `kind_boost` gives extra weight to classes/interfaces (2), REST endpoints (3), and components (2). `edge_proximity_score` = `1 / (depth_from_seed + 1)`.
-5. **Budget enforcement:** Sort by score descending. Accumulate source code sizes until `maxNodes` is reached (default: 20) or estimated token budget (~4000 tokens) is hit.
+5. **Budget enforcement:** Sort by score descending. Take top `maxNodes` results (default: 20). No token budget — complete traces are a core goal of this project.
 6. **Source assembly:** For each selected node, read the source file from disk and extract the line range. Return as structured markdown with symbol metadata.
 
 This algorithm is intentionally simple. It can be refined based on real-world usage — the key constraint is that it must complete in <500ms for graphs under 10K nodes.
