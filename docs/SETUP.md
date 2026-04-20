@@ -307,6 +307,24 @@ Shows which modules depend on which, with scan status:
 - @company/ui-kit@3.0.0 (npm) — scanned
 ```
 
+### Step 8: Query the Knowledge Graph
+
+After scanning, the knowledge graph is populated and you can query it directly:
+
+```
+Search for "UserService" in the knowledge graph.
+
+Who calls createUser?
+
+What's the blast radius if I change UserService?
+
+I need to fix the login endpoint — give me context.
+```
+
+The graph tools trace relationships across Java, TypeScript, and GraphQL — a single `get-impact` query can follow the chain from a React component through a GraphQL schema down to a JPA repository.
+
+For the full list of graph tools and their capabilities, see the main [README](../README.md#tools-22).
+
 ### Monorepo Configuration
 
 If the auto-detection doesn't find all modules, tell the LLM the structure:
@@ -341,9 +359,21 @@ To force a re-fetch, use `remove-framework` then `add-framework`, or delete the 
 rm -rf ~/.stack-compass/cache/
 ```
 
-## All Available Tools (15)
+## All Available Tools (22)
 
-### External Documentation Tools
+### Knowledge Graph Tools (7)
+
+| Tool | What it does |
+|------|-------------|
+| `search-symbols` | FTS5 full-text search across all indexed symbols. Filter by kind, module |
+| `get-symbol-detail` | Full details: kind, file, lines, signature, annotations, callers, callees, REST endpoints, source snippet |
+| `graph-status` | Node/edge/file counts, last scan time, stale file count |
+| `get-callers` | Reverse BFS on call edges — who calls this symbol? Configurable depth |
+| `get-callees` | Forward BFS on call edges — what does this symbol call? |
+| `get-impact` | Blast radius: reverse BFS on ALL edge types across languages |
+| `build-context` | Task-driven context assembly: FTS5 seed → graph expansion → scoring → source snippets |
+
+### External Documentation Tools (11)
 
 | Tool | What it does |
 |------|-------------|
@@ -359,12 +389,12 @@ rm -rf ~/.stack-compass/cache/
 | `remove-framework` | Remove a custom framework and its cache |
 | `list-all-supported-frameworks` | All 30+ built-in frameworks with version ranges |
 
-### Internal Source Scanning Tools
+### Internal Source Scanning Tools (4)
 
 | Tool | What it does |
 |------|-------------|
 | `configure-internal-patterns` | Define Maven group prefixes, npm scopes, SBT org prefixes, custom regex to identify internal deps |
-| `scan-internal-source` | Detect cross-module deps and scan source code via Tree-sitter WASM |
+| `scan-internal-source` | Detect cross-module deps and scan source code via Tree-sitter WASM. Populates the knowledge graph. |
 | `get-internal-api` | Browse the extracted API tree for a scanned module (`tree` or `full` format) |
 | `list-internal-deps` | List all detected internal dependencies with scan status |
 
@@ -532,12 +562,12 @@ rm -rf ~/.stack-compass/cache/
 npm test
 ```
 
-This runs 684 tests using `InMemoryTransport` (no subprocess spawning):
+This runs 1,023 tests using `InMemoryTransport` (no subprocess spawning):
 
-- **Unit tests** — tree-builder, disk-cache, source-scanner (Java/TS/Scala/GraphQL extraction, content-based test detection), internal-deps detector (Maven/Gradle/npm/SBT, complex POMs, `dependencyManagement` exclusion), GitHub token resolution
-- **Integration tests** — each MCP tool individually, source scanning tools with path traversal protection
+- **Unit tests** — graph-store, edge-resolvers, graph-traversal, cross-language resolution, incremental-sync, graph-safety, graph-resilience, tree-builder, disk-cache, source-scanner, internal-deps, GitHub token
+- **Integration tests** — graph-performance (with timing thresholds), graph-tools, graph-traversal-tools, each MCP tool individually, source scanning tools with path traversal protection
 - **Workflow test** — full mock-LLM conversation simulating the 5-step flow
-- **Scenario tests** — real-world framework discovery (15 frameworks), usage pattern search, internal API search (aggressive search over extracted source-code documentation)
+- **Scenario tests** — real-world framework discovery (15 frameworks), usage pattern search, internal API search
 
 ## Development
 
