@@ -13,6 +13,10 @@ export interface FileWatcherOptions {
 /**
  * Watches a directory for source file changes using fs.watch with recursive mode.
  * Debounces rapid changes into batched callbacks.
+ *
+ * Platform note: `fs.watch` with `recursive: true` is only supported on macOS
+ * and Windows. On Linux, only top-level directory changes are detected.
+ * For full Linux support, consider using `chokidar` or manual recursive walking.
  */
 export class FileWatcher {
   private onChange: (files: string[]) => void;

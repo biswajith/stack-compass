@@ -12,6 +12,7 @@ import { testEdgeResolvers } from './unit/edge-resolvers.test.js';
 import { testGraphTraversal } from './unit/graph-traversal.test.js';
 import { testCrossLanguage } from './unit/cross-language.test.js';
 import { testIncrementalSync, testFileWatcher } from './unit/incremental-sync.test.js';
+import { testGraphSafety } from './unit/code-review-fixes.test.js';
 
 // Integration tests
 import { testAnalyzeProject } from './integration/analyze-project.test.js';
@@ -50,6 +51,7 @@ async function run() {
   await testCrossLanguage();
   await testIncrementalSync();
   await testFileWatcher();
+  await testGraphSafety();
 
   // Integration
   await testAnalyzeProject();

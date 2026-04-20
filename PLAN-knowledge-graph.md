@@ -966,7 +966,7 @@ All changes are additive — existing return types gain optional fields, existin
 
 | What | Files |
 |---|---|
-| SQLite graph layer | `src/graph/store.ts`, `schema.sql`, `queries.ts`, `migrations/` |
+| SQLite graph layer | `src/graph/store.ts`, `schema.sql` (queries are inline in store.ts for simplicity) |
 | Edge resolvers (6) | `src/graph/resolvers/import-resolver.ts`, `call-resolver.ts`, `graphql-resolver.ts`, `rest-resolver.ts`, `spring-resolver.ts`, `react-resolver.ts` |
 | 7 new MCP tools | `src/server/graph-tools.ts` (search-symbols, get-symbol-detail, graph-status, get-callers, get-callees, get-impact, build-context) |
 | Incremental sync | `src/graph/sync.ts` |

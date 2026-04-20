@@ -12,45 +12,31 @@ export function normalizePath(urlPath: string): string {
  * Creates `rest_match` edges.
  */
 export function resolveRestEdges(store: GraphStore): void {
-  const allFiles = store.getAllFiles();
-
-  // Collect all REST endpoints from the rest_endpoints table
-  const restEndpoints: Array<{ node_id: number; method: string; path: string }> = [];
-  for (const file of allFiles) {
-    const nodes = store.getAllNodesByFileId(file.id);
-    for (const node of nodes) {
-      const eps = store.getRestEndpointsByNodeId(node.id);
-      for (const ep of eps) {
-        restEndpoints.push({ node_id: node.id, method: ep.method, path: ep.path });
-      }
-    }
-  }
-
+  // Bulk query: single SELECT instead of per-node queries
+  const restEndpoints = store.getAllRestEndpoints();
   if (restEndpoints.length === 0) return;
 
-  // Build normalized path → endpoint map
   const normalizedEndpoints = restEndpoints.map(ep => ({
     ...ep,
     normalizedPath: normalizePath(ep.path),
   }));
 
-  // Find all api-call nodes
-  for (const file of allFiles) {
-    const nodes = store.getAllNodesByFileId(file.id);
-    for (const node of nodes) {
-      if (node.kind !== 'api-call' || !node.api_path) continue;
+  // Bulk query: get all api-call nodes in one pass
+  const apiCalls = store.getApiCalls();
 
-      const callNormalized = normalizePath(node.api_path);
-      const callMethod = node.api_method ?? 'GET';
+  for (const call of apiCalls) {
+    if (!call.path) continue;
 
-      for (const ep of normalizedEndpoints) {
-        const methodMatches = ep.method === callMethod;
-        const pathMatches = ep.normalizedPath === callNormalized
-          || callNormalized.startsWith(ep.normalizedPath + '/');
+    const callNormalized = normalizePath(call.path);
+    const callMethod = call.method ?? 'GET';
 
-        if (methodMatches && pathMatches) {
-          store.insertEdge(node.id, ep.node_id, 'rest_match', null);
-        }
+    for (const ep of normalizedEndpoints) {
+      const methodMatches = ep.method === callMethod || ep.method === 'ANY';
+      const pathMatches = ep.normalizedPath === callNormalized
+        || callNormalized.startsWith(ep.normalizedPath + '/');
+
+      if (methodMatches && pathMatches) {
+        store.insertEdge(call.node_id, ep.node_id, 'rest_match', null);
       }
     }
   }

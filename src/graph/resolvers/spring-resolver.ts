@@ -9,6 +9,25 @@ const IMPL_ANNOTATIONS = new Set(['Service', 'Component', 'Repository']);
  * Creates `injects` edges from the containing class to the implementation class.
  */
 export function resolveSpringEdges(store: GraphStore): void {
+  // Pre-load all classes with implements in one query
+  const implCandidates = store.getClassesWithImplements();
+
+  // Build interface→implementation index in memory
+  const implIndex = new Map<string, number[]>();
+  for (const cls of implCandidates) {
+    if (!cls.implements_names) continue;
+    try {
+      const implList: string[] = JSON.parse(cls.implements_names);
+      const annotations = store.getAnnotations(cls.id);
+      const isSpringBean = annotations.some(a => IMPL_ANNOTATIONS.has(a.name));
+      if (!isSpringBean) continue;
+      for (const iface of implList) {
+        if (!implIndex.has(iface)) implIndex.set(iface, []);
+        implIndex.get(iface)!.push(cls.id);
+      }
+    } catch { /* malformed JSON — skip */ }
+  }
+
   const allFiles = store.getAllFiles();
 
   for (const file of allFiles) {
@@ -24,14 +43,24 @@ export function resolveSpringEdges(store: GraphStore): void {
         const isInjectable = annotations.some(a => INJECTABLE_ANNOTATIONS.has(a.name));
         if (!isInjectable) continue;
 
-        // Extract the type name from the field signature (e.g., "UserRepository repository")
         const typeName = extractFieldType(field.signature);
         if (!typeName) continue;
 
-        // Find implementation class
-        const implId = findImplementation(store, typeName);
-        if (implId !== null) {
-          store.insertEdge(cls.id, implId, 'injects', typeName);
+        // Look up in pre-built index first
+        const implIds = implIndex.get(typeName);
+        if (implIds && implIds.length > 0) {
+          store.insertEdge(cls.id, implIds[0], 'injects', typeName);
+          continue;
+        }
+
+        // Fallback: direct name match
+        const directMatches = store.getNodesByName(typeName, { kind: 'class' });
+        for (const match of directMatches) {
+          const matchAnns = store.getAnnotations(match.id);
+          if (matchAnns.some(a => IMPL_ANNOTATIONS.has(a.name))) {
+            store.insertEdge(cls.id, match.id, 'injects', typeName);
+            break;
+          }
         }
       }
     }
@@ -40,35 +69,6 @@ export function resolveSpringEdges(store: GraphStore): void {
 
 function extractFieldType(signature: string | null): string | null {
   if (!signature) return null;
-  // "UserRepository repository" → "UserRepository"
   const parts = signature.trim().split(/\s+/);
   return parts.length >= 2 ? parts[0] : null;
-}
-
-function findImplementation(store: GraphStore, interfaceName: string): number | null {
-  // Strategy 1: Find a class that implements this interface
-  const allFiles = store.getAllFiles();
-  for (const file of allFiles) {
-    const nodes = store.getNodesByFileId(file.id);
-    for (const node of nodes) {
-      if (node.kind !== 'class') continue;
-      if (!node.implements_names) continue;
-
-      const implList: string[] = JSON.parse(node.implements_names);
-      if (implList.includes(interfaceName)) {
-        const annotations = store.getAnnotations(node.id);
-        const isSpringBean = annotations.some(a => IMPL_ANNOTATIONS.has(a.name));
-        if (isSpringBean) return node.id;
-      }
-    }
-  }
-
-  // Strategy 2: Find a class with matching name that is a Spring bean
-  const directMatches = store.getNodesByName(interfaceName, { kind: 'class' });
-  for (const match of directMatches) {
-    const annotations = store.getAnnotations(match.id);
-    if (annotations.some(a => IMPL_ANNOTATIONS.has(a.name))) return match.id;
-  }
-
-  return null;
 }

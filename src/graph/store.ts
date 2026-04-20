@@ -185,6 +185,16 @@ function extractGqlResolver(
   return { fieldName, parentType, operationType };
 }
 
+function sanitizeFtsQuery(raw: string): string {
+  // Strip FTS5 operators to prevent syntax errors and injection
+  const cleaned = raw.replace(/[*:"^(){}[\]]/g, ' ').trim();
+  if (!cleaned) return '';
+  // Wrap each token in double quotes to force literal matching
+  const tokens = cleaned.split(/\s+/).filter(t => t.length > 0);
+  if (tokens.length === 0) return '';
+  return tokens.map(t => `"${t}"`).join(' ');
+}
+
 // ── GraphStore ───────────────────────────────────────────────────────────
 
 export class GraphStore {
@@ -395,9 +405,20 @@ export class GraphStore {
   }
 
   getNodesByNameSuffix(suffix: string): NodeRow[] {
+    const escaped = suffix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
     return this.db.prepare(
-      'SELECT * FROM nodes WHERE name LIKE ? AND kind IN (\'class\', \'interface\', \'component\')'
-    ).all(`%${suffix}`) as NodeRow[];
+      "SELECT * FROM nodes WHERE name LIKE ? ESCAPE '\\' AND kind IN ('class', 'interface', 'component')"
+    ).all(`%${escaped}`) as NodeRow[];
+  }
+
+  getAllRestEndpoints(): Array<{ node_id: number; method: string; path: string }> {
+    return this.db.prepare('SELECT node_id, method, path FROM rest_endpoints').all() as Array<{ node_id: number; method: string; path: string }>;
+  }
+
+  getClassesWithImplements(): NodeRow[] {
+    return this.db.prepare(
+      "SELECT * FROM nodes WHERE kind = 'class' AND implements_names IS NOT NULL"
+    ).all() as NodeRow[];
   }
 
   getRestEndpointsByNodeId(nodeId: number): Array<{ method: string; path: string }> {
@@ -452,7 +473,7 @@ export class GraphStore {
   }
 
   getGqlResolvers(): Array<{ node_id: number; operation_type: string; field_name: string; parent_type: string }> {
-    return this.db.prepare('SELECT * FROM graphql_resolvers').all() as any[];
+    return this.db.prepare('SELECT * FROM graphql_resolvers').all() as Array<{ node_id: number; operation_type: string; field_name: string; parent_type: string }>;
   }
 
   // ── GraphQL operations ────────────────────────────────────────────
@@ -464,20 +485,23 @@ export class GraphStore {
   }
 
   getGqlOperations(): Array<{ node_id: number; operation_type: string; fields: string }> {
-    return this.db.prepare('SELECT * FROM graphql_operations').all() as any[];
+    return this.db.prepare('SELECT * FROM graphql_operations').all() as Array<{ node_id: number; operation_type: string; fields: string }>;
   }
 
   // ── API calls ─────────────────────────────────────────────────────
 
-  getApiCalls(): Array<{ node_id: number; method: string; path: string }> {
+  getApiCalls(): Array<{ node_id: number; method: string | null; path: string | null }> {
     return this.db.prepare(
       "SELECT n.id AS node_id, n.api_method AS method, n.api_path AS path FROM nodes n WHERE n.kind = 'api-call'"
-    ).all() as any[];
+    ).all() as Array<{ node_id: number; method: string | null; path: string | null }>;
   }
 
   // ── FTS5 Search ──────────────────────────────────────────────────────
 
-  searchSymbols(query: string, opts?: { kind?: string; module?: string; limit?: number }): SearchResult[] {
+  searchSymbols(query: string, opts?: { kind?: string; module?: string; limit?: number; rawFts?: boolean }): SearchResult[] {
+    const sanitized = opts?.rawFts ? query : sanitizeFtsQuery(query);
+    if (!sanitized) return [];
+
     const limit = opts?.limit ?? 20;
     let sql = `
       SELECT n.id, n.name, n.qualified, n.kind, n.file_id, f.path AS file_path,
@@ -487,7 +511,7 @@ export class GraphStore {
       LEFT JOIN files f ON f.id = n.file_id
       WHERE nodes_fts MATCH ?
     `;
-    const params: (string | number)[] = [query];
+    const params: (string | number)[] = [sanitized];
 
     if (opts?.kind) {
       sql += ' AND n.kind = ?';
@@ -593,7 +617,7 @@ export class GraphStore {
         this.insertAnnotation(nodeId, parsed.name, parsed.value, raw);
 
         const restInfo = extractRestEndpoint(parsed.name, parsed.value);
-        if (restInfo) {
+        if (restInfo && sym.kind !== 'class' && sym.kind !== 'interface') {
           const fullPath = classRestPrefix + restInfo.path;
           this.insertRestEndpoint(nodeId, restInfo.method, fullPath, fileId);
         }
@@ -646,10 +670,8 @@ export class GraphStore {
       if (parent?.qualified) return `${parent.qualified}.${sym.name}`;
     }
 
-    const file = this.getFileByPath(
-      (this.db.prepare('SELECT path FROM files WHERE id = ?').get(fileId) as { path: string })?.path ?? ''
-    );
-    if (file) return `${file.path}#${sym.name}`;
+    const fileRow = this.db.prepare('SELECT path FROM files WHERE id = ?').get(fileId) as { path: string } | undefined;
+    if (fileRow?.path) return `${fileRow.path}#${sym.name}`;
 
     return null;
   }
@@ -661,7 +683,7 @@ export class GraphStore {
     } catch {
       // File not on disk (e.g. synthetic test data) — fall back to structural hash
       const parts = file.symbols.map(s =>
-        `${s.name}:${s.kind}:${s.visibility}:${s.location.startLine}-${s.location.endLine}:${s.signature ?? ''}:${s.docComment ?? ''}:${(s.annotations ?? []).join(',')}`
+        `${s.name}:${s.kind}:${s.visibility}:${s.location.startLine}-${s.location.endLine}:${s.signature ?? ''}:${s.docComment ?? ''}:${(s.annotations ?? []).join(',')}:${s.extends ?? ''}:${(s.implements ?? []).join(',')}:${(s.callSites ?? []).map(c => c.target).join(',')}:${(s.jsxElements ?? []).join(',')}:${s.gqlOperationType ?? ''}:${(s.gqlFields ?? []).join(',')}:${s.apiMethod ?? ''}:${s.apiPath ?? ''}`
       );
       parts.push(file.filePath);
       return crypto.createHash('sha256').update(parts.join('|')).digest('hex');

@@ -32,8 +32,8 @@ export interface ContextEntry {
 
 // ── get-callers: reverse BFS on "calls" edges ────────────────────────────
 
-export function getCallers(store: GraphStore, symbolName: string, depth: number = 2): TraversalEntry[] {
-  const seedNodes = store.getNodesByName(symbolName);
+export function getCallers(store: GraphStore, symbolName: string, depth: number = 2, module?: string): TraversalEntry[] {
+  const seedNodes = store.getNodesByName(symbolName, module ? { module } : undefined);
   if (seedNodes.length === 0) return [];
 
   return bfsTraverse(store, seedNodes.map(n => n.id), depth, 'reverse', ['calls']);
@@ -41,8 +41,8 @@ export function getCallers(store: GraphStore, symbolName: string, depth: number 
 
 // ── get-callees: forward BFS on "calls" edges ───────────────────────────
 
-export function getCallees(store: GraphStore, symbolName: string, depth: number = 2): TraversalEntry[] {
-  const seedNodes = store.getNodesByName(symbolName);
+export function getCallees(store: GraphStore, symbolName: string, depth: number = 2, module?: string): TraversalEntry[] {
+  const seedNodes = store.getNodesByName(symbolName, module ? { module } : undefined);
   if (seedNodes.length === 0) return [];
 
   return bfsTraverse(store, seedNodes.map(n => n.id), depth, 'forward', ['calls']);
@@ -50,8 +50,8 @@ export function getCallees(store: GraphStore, symbolName: string, depth: number 
 
 // ── get-impact: reverse BFS on ALL edge types ───────────────────────────
 
-export function getImpact(store: GraphStore, symbolName: string, depth: number = 3): ImpactResult {
-  const seedNodes = store.getNodesByName(symbolName);
+export function getImpact(store: GraphStore, symbolName: string, depth: number = 3, module?: string): ImpactResult {
+  const seedNodes = store.getNodesByName(symbolName, module ? { module } : undefined);
   if (seedNodes.length === 0) return { nodes: [], directCount: 0, transitiveCount: 0 };
 
   // Also include children of the symbol (e.g., methods of a class)
@@ -120,11 +120,11 @@ export function buildContext(store: GraphStore, task: string, maxNodes: number =
   const terms = extractTerms(task);
   if (terms.length === 0) return [];
 
-  // Step 2: Seed search via FTS5
-  const ftsQuery = terms.join(' OR ');
+  // Step 2: Seed search via FTS5 (terms are pre-sanitized by extractTerms)
+  const ftsQuery = terms.map(t => `"${t}"`).join(' OR ');
   let seeds: import('./store.js').SearchResult[];
   try {
-    seeds = store.searchSymbols(ftsQuery, { limit: 10 });
+    seeds = store.searchSymbols(ftsQuery, { limit: 10, rawFts: true });
   } catch {
     return [];
   }

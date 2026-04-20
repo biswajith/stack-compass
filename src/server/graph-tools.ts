@@ -225,11 +225,11 @@ export function registerGraphTools(ctx: ServerContext): void {
       module: z.string().optional().describe('Module name to disambiguate'),
       depth: z.number().optional().describe('Max traversal depth (default 2)'),
     },
-    async ({ symbolName, depth }) => {
+    async ({ symbolName, module, depth }) => {
       const check = requireGraphStore(ctx);
       if (!check.ok) return check.error;
 
-      const entries = getCallers(check.store, symbolName, depth ?? 2);
+      const entries = getCallers(check.store, symbolName, depth ?? 2, module);
 
       if (entries.length === 0) {
         const nodes = check.store.getNodesByName(symbolName);
@@ -260,11 +260,11 @@ export function registerGraphTools(ctx: ServerContext): void {
       module: z.string().optional().describe('Module name to disambiguate'),
       depth: z.number().optional().describe('Max traversal depth (default 2)'),
     },
-    async ({ symbolName, depth }) => {
+    async ({ symbolName, module, depth }) => {
       const check = requireGraphStore(ctx);
       if (!check.ok) return check.error;
 
-      const entries = getCallees(check.store, symbolName, depth ?? 2);
+      const entries = getCallees(check.store, symbolName, depth ?? 2, module);
 
       if (entries.length === 0) {
         const nodes = check.store.getNodesByName(symbolName);
@@ -295,11 +295,11 @@ export function registerGraphTools(ctx: ServerContext): void {
       module: z.string().optional().describe('Module name to disambiguate'),
       depth: z.number().optional().describe('Max traversal depth (default 3)'),
     },
-    async ({ symbolName, depth }) => {
+    async ({ symbolName, module, depth }) => {
       const check = requireGraphStore(ctx);
       if (!check.ok) return check.error;
 
-      const result = getImpact(check.store, symbolName, depth ?? 3);
+      const result = getImpact(check.store, symbolName, depth ?? 3, module);
 
       if (result.nodes.length === 0) {
         const nodes = check.store.getNodesByName(symbolName);

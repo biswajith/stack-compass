@@ -1,4 +1,4 @@
--- Stack Compass Knowledge Graph Schema (v1)
+-- Stack Compass Knowledge Graph Schema (v4)
 -- PRAGMAs are set programmatically in GraphStore.open()
 
 -- Indexed source files

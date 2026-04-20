@@ -154,6 +154,16 @@ export function registerSourceScanTools(ctx: ServerContext): void {
           }
         }
 
+        if (ctx.graphStore) {
+          try { resolveAllEdges(ctx.graphStore); } catch (re) {
+            scanWarnings.push(`Edge resolution failed: ${re instanceof Error ? re.message : String(re)}`);
+          }
+          const gs = ctx.graphStore.getStats();
+          r += `## Knowledge Graph\n\n`;
+          r += `- Nodes: ${gs.totalNodes} | Edges: ${gs.totalEdges} | Files: ${gs.totalFiles}\n`;
+          r += `- DB: \`.stack-compass/graph.db\`\n\n`;
+        }
+
         const allWarnings = [
           ...ctx.internalDepsDetector.warnings,
           ...scanWarnings,
@@ -163,16 +173,6 @@ export function registerSourceScanTools(ctx: ServerContext): void {
           for (const w of allWarnings.slice(0, 20)) r += `- ${sanitizePaths(w, resolvedRoot)}\n`;
           if (allWarnings.length > 20) r += `- ... and ${allWarnings.length - 20} more\n`;
           r += '\n';
-        }
-
-        if (ctx.graphStore) {
-          try { resolveAllEdges(ctx.graphStore); } catch (re) {
-            scanWarnings.push(`Edge resolution failed: ${re instanceof Error ? re.message : String(re)}`);
-          }
-          const gs = ctx.graphStore.getStats();
-          r += `## Knowledge Graph\n\n`;
-          r += `- Nodes: ${gs.totalNodes} | Edges: ${gs.totalEdges} | Files: ${gs.totalFiles}\n`;
-          r += `- DB: \`.stack-compass/graph.db\`\n\n`;
         }
 
         r += '## Next Steps\n\n';
