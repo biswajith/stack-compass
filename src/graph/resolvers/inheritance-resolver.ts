@@ -4,7 +4,7 @@ export function resolveInheritanceEdges(store: GraphStore): void {
   const allFiles = store.getAllFiles();
 
   for (const file of allFiles) {
-    const nodes = store.getNodesByFileId(file.id);
+    const nodes = store.getTopLevelNodesByFileId(file.id);
 
     for (const node of nodes) {
       resolveNodeInheritance(store, node);
@@ -47,10 +47,12 @@ function resolveNodeInheritance(store: GraphStore, node: NodeRow): void {
   }
 }
 
-function resolveChildrenInheritance(store: GraphStore, parent: NodeRow): void {
+function resolveChildrenInheritance(store: GraphStore, parent: NodeRow, visited = new Set<number>()): void {
+  if (visited.has(parent.id)) return;
+  visited.add(parent.id);
   const children = store.getChildNodes(parent.id);
   for (const child of children) {
     resolveNodeInheritance(store, child);
-    resolveChildrenInheritance(store, child);
+    resolveChildrenInheritance(store, child, visited);
   }
 }

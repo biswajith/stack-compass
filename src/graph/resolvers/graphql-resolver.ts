@@ -73,7 +73,7 @@ function resolveGqlTypeToEntity(store: GraphStore): void {
   const ENTITY_ANNOTATIONS = new Set(['Entity', 'Document', 'DgsData']);
 
   for (const file of allFiles) {
-    const nodes = store.getNodesByFileId(file.id);
+    const nodes = store.getTopLevelNodesByFileId(file.id);
     for (const node of nodes) {
       if (node.kind !== 'graphql-type') continue;
 

@@ -295,7 +295,7 @@ async function test_build_context_term_extraction() {
   assert('terms: removes stop words', !terms.includes('the'), `got ${JSON.stringify(terms)}`);
   assert('terms: keeps login', terms.includes('login'), `got ${JSON.stringify(terms)}`);
   assert('terms: keeps endpoint', terms.includes('endpoint'), `got ${JSON.stringify(terms)}`);
-  assert('terms: keeps fix', terms.includes('fix'), `got ${JSON.stringify(terms)}`);
+  assert('terms: filters action word fix', !terms.includes('fix'), `got ${JSON.stringify(terms)}`);
 }
 
 async function test_build_context_seed_search() {

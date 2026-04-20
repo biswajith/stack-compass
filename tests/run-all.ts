@@ -13,6 +13,7 @@ import { testGraphTraversal } from './unit/graph-traversal.test.js';
 import { testCrossLanguage } from './unit/cross-language.test.js';
 import { testIncrementalSync, testFileWatcher } from './unit/incremental-sync.test.js';
 import { testGraphSafety } from './unit/code-review-fixes.test.js';
+import { testGraphResilience } from './unit/graph-resilience.test.js';
 
 // Integration tests
 import { testAnalyzeProject } from './integration/analyze-project.test.js';
@@ -53,6 +54,7 @@ async function run() {
   await testIncrementalSync();
   await testFileWatcher();
   await testGraphSafety();
+  await testGraphResilience();
 
   // Integration
   await testAnalyzeProject();

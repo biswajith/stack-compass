@@ -5,7 +5,7 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import type { ScannedModule, ScannedFile, ExtractedSymbol } from '../source-scanner/types.js';
 
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
@@ -109,6 +109,12 @@ export function parseAnnotation(raw: string): { name: string; value: string | nu
   const name = raw.substring(0, parenIdx).trim().replace(/^@/, '');
   const paramsStr = raw.substring(parenIdx + 1, raw.lastIndexOf(')'));
 
+  // Array value: @RequestMapping(value = {"/api/v1", "/api/v2"})
+  const arrayMatch = paramsStr.match(/\{\s*"([^"]*)"(?:\s*,\s*"[^"]*")*\s*\}/);
+  if (arrayMatch) {
+    return { name, value: arrayMatch[1] };
+  }
+
   // Single unnamed string value: @GetMapping("/api/users")
   const singleMatch = paramsStr.match(/^\s*"([^"]*)"(?:\s*,\s*"[^"]*")*\s*$/);
   if (singleMatch) {
@@ -183,6 +189,14 @@ function extractGqlResolver(
   }
 
   return { fieldName, parentType, operationType };
+}
+
+function serializeSymbolForHash(s: ExtractedSymbol): string {
+  let part = `${s.name}:${s.kind}:${s.visibility}:${s.location.startLine}-${s.location.endLine}:${s.signature ?? ''}:${s.docComment ?? ''}:${(s.annotations ?? []).join(',')}:${s.extends ?? ''}:${(s.implements ?? []).join(',')}:${(s.callSites ?? []).map(c => c.target).join(',')}:${(s.jsxElements ?? []).join(',')}:${s.gqlOperationType ?? ''}:${(s.gqlFields ?? []).join(',')}:${s.apiMethod ?? ''}:${s.apiPath ?? ''}`;
+  if (s.children && s.children.length > 0) {
+    part += ':children=[' + s.children.map(serializeSymbolForHash).join(',') + ']';
+  }
+  return part;
 }
 
 function sanitizeFtsQuery(raw: string): string {
@@ -276,19 +290,14 @@ export class GraphStore {
   // ── Files ────────────────────────────────────────────────────────────
 
   upsertFile(filePath: string, hash: string, language: string, module: string | null): number {
-    const stmt = this.db.prepare(`
+    this.db.prepare(`
       INSERT INTO files (path, hash, language, module)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(path) DO UPDATE SET hash=excluded.hash, language=excluded.language,
         module=excluded.module, scanned_at=unixepoch()
-    `);
-    const result = stmt.run(filePath, hash, language, module);
-    if (result.changes > 0 && result.lastInsertRowid) {
-      return Number(result.lastInsertRowid);
-    }
-    // ON CONFLICT UPDATE doesn't always return lastInsertRowid, so look it up
-    const row = this.db.prepare('SELECT id FROM files WHERE path = ?').get(filePath) as { id: number } | undefined;
-    return row!.id;
+    `).run(filePath, hash, language, module);
+    const row = this.db.prepare('SELECT id FROM files WHERE path = ?').get(filePath) as { id: number };
+    return row.id;
   }
 
   getFileByPath(filePath: string): FileRow | null {
@@ -318,8 +327,13 @@ export class GraphStore {
     return this.db.prepare('SELECT * FROM files').all() as FileRow[];
   }
 
-  getNodesByFileId(fileId: number): NodeRow[] {
+  getTopLevelNodesByFileId(fileId: number): NodeRow[] {
     return this.db.prepare('SELECT * FROM nodes WHERE file_id = ? AND parent_id IS NULL').all(fileId) as NodeRow[];
+  }
+
+  /** @deprecated Use getTopLevelNodesByFileId for top-level or getAllNodesByFileId for all */
+  getNodesByFileId(fileId: number): NodeRow[] {
+    return this.getTopLevelNodesByFileId(fileId);
   }
 
   getAllNodesByFileId(fileId: number): NodeRow[] {
@@ -343,19 +357,16 @@ export class GraphStore {
         gql_operation_type=excluded.gql_operation_type, gql_fields=excluded.gql_fields,
         api_method=excluded.api_method, api_path=excluded.api_path
     `);
-    const result = stmt.run(
+    stmt.run(
       n.name, n.qualified, n.kind, n.visibility, n.signature, n.docComment,
       n.fileId, n.startLine, n.endLine, n.parentId, n.module,
       n.extendsName, n.implementsNames,
       n.gqlOperationType, n.gqlFields, n.apiMethod, n.apiPath,
     );
-    if (result.changes > 0 && result.lastInsertRowid) {
-      return Number(result.lastInsertRowid);
-    }
     const row = this.db.prepare(
       'SELECT id FROM nodes WHERE file_id = ? AND name = ? AND kind = ? AND start_line = ?'
-    ).get(n.fileId, n.name, n.kind, n.startLine) as { id: number } | undefined;
-    return row!.id;
+    ).get(n.fileId, n.name, n.kind, n.startLine) as { id: number };
+    return row.id;
   }
 
   getNodeById(id: number): NodeRow | null {
@@ -682,9 +693,7 @@ export class GraphStore {
       return crypto.createHash('sha256').update(content).digest('hex');
     } catch {
       // File not on disk (e.g. synthetic test data) — fall back to structural hash
-      const parts = file.symbols.map(s =>
-        `${s.name}:${s.kind}:${s.visibility}:${s.location.startLine}-${s.location.endLine}:${s.signature ?? ''}:${s.docComment ?? ''}:${(s.annotations ?? []).join(',')}:${s.extends ?? ''}:${(s.implements ?? []).join(',')}:${(s.callSites ?? []).map(c => c.target).join(',')}:${(s.jsxElements ?? []).join(',')}:${s.gqlOperationType ?? ''}:${(s.gqlFields ?? []).join(',')}:${s.apiMethod ?? ''}:${s.apiPath ?? ''}`
-      );
+      const parts = file.symbols.map(s => serializeSymbolForHash(s));
       parts.push(file.filePath);
       return crypto.createHash('sha256').update(parts.join('|')).digest('hex');
     }

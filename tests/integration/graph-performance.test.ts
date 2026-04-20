@@ -6,6 +6,7 @@ import { GraphStore } from '../../src/graph/store.js';
 import { resolveAllEdges } from '../../src/graph/resolvers/index.js';
 import { getCallers, getCallees, getImpact, buildContext } from '../../src/graph/traversal.js';
 import { IncrementalSync } from '../../src/graph/sync.js';
+import type { ScannedModule, ScannedFile, ExtractedSymbol } from '../../src/source-scanner/types.js';
 
 const PROJECT_ROOT = path.resolve(import.meta.dirname, '..', '..');
 
@@ -327,12 +328,21 @@ async function test_resolver_no_n_plus_one() {
 
 // ── Fixture builders ────────────────────────────────────────────────────
 
-function buildLargeModule(name: string, classCount: number) {
+function makeSummary(files: ScannedFile[]): ScannedModule['summary'] {
+  return {
+    totalFiles: files.length,
+    totalSymbols: files.reduce((s, f) => s + f.symbols.length, 0),
+    publicClasses: [], publicInterfaces: [], publicMethods: 0,
+    annotations: [], restEndpoints: [], entities: [], events: [],
+  };
+}
+
+function buildLargeModule(name: string, classCount: number): ScannedModule {
   const filesPerModule = Math.ceil(classCount / 10);
-  const files: any[] = [];
+  const files: ScannedFile[] = [];
 
   for (let f = 0; f < filesPerModule; f++) {
-    const symbols: any[] = [];
+    const symbols: ExtractedSymbol[] = [];
     const classesInFile = Math.min(10, classCount - f * 10);
 
     for (let c = 0; c < classesInFile; c++) {
@@ -372,11 +382,11 @@ function buildLargeModule(name: string, classCount: number) {
     });
   }
 
-  return { name, files };
+  return { name, path: `/fake/${name}`, language: 'java', files, summary: makeSummary(files) };
 }
 
-function buildCallChainModule(name: string, chainLength: number) {
-  const symbols: any[] = [];
+function buildCallChainModule(name: string, chainLength: number): ScannedModule {
+  const symbols: ExtractedSymbol[] = [];
 
   for (let i = 0; i < chainLength; i++) {
     symbols.push({
@@ -389,21 +399,20 @@ function buildCallChainModule(name: string, chainLength: number) {
     });
   }
 
-  return {
-    name,
-    files: [{
-      filePath: `/src/${name}/Chain.java`,
-      language: 'java',
-      packageName: `com.bench.${name}`,
-      symbols,
-      imports: [],
-    }],
-  };
+  const files: ScannedFile[] = [{
+    filePath: `/src/${name}/Chain.java`,
+    language: 'java',
+    packageName: `com.bench.${name}`,
+    symbols,
+    imports: [],
+  }];
+
+  return { name, path: `/fake/${name}`, language: 'java' as const, files, summary: makeSummary(files) };
 }
 
-function buildRestHeavyModule(name: string, count: number) {
-  const javaSymbols: any[] = [];
-  const tsSymbols: any[] = [];
+function buildRestHeavyModule(name: string, count: number): ScannedModule {
+  const javaSymbols: ExtractedSymbol[] = [];
+  const tsSymbols: ExtractedSymbol[] = [];
 
   for (let i = 0; i < count; i++) {
     javaSymbols.push({
@@ -431,22 +440,21 @@ function buildRestHeavyModule(name: string, count: number) {
     });
   }
 
-  return {
-    name,
-    files: [
-      {
-        filePath: `/src/${name}/Controllers.java`,
-        language: 'java',
-        packageName: `com.bench.${name}`,
-        symbols: javaSymbols,
-        imports: [],
-      },
-      {
-        filePath: `/src/${name}/api-client.ts`,
-        language: 'typescript',
-        symbols: tsSymbols,
-        imports: [],
-      },
-    ],
-  };
+  const files: ScannedFile[] = [
+    {
+      filePath: `/src/${name}/Controllers.java`,
+      language: 'java',
+      packageName: `com.bench.${name}`,
+      symbols: javaSymbols,
+      imports: [],
+    },
+    {
+      filePath: `/src/${name}/api-client.ts`,
+      language: 'typescript',
+      symbols: tsSymbols,
+      imports: [],
+    },
+  ];
+
+  return { name, path: `/fake/${name}`, language: 'java', files, summary: makeSummary(files) };
 }

@@ -31,7 +31,7 @@ export function resolveSpringEdges(store: GraphStore): void {
   const allFiles = store.getAllFiles();
 
   for (const file of allFiles) {
-    const topNodes = store.getNodesByFileId(file.id);
+    const topNodes = store.getTopLevelNodesByFileId(file.id);
     for (const cls of topNodes) {
       if (cls.kind !== 'class') continue;
 

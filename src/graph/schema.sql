@@ -1,4 +1,4 @@
--- Stack Compass Knowledge Graph Schema (v4)
+-- Stack Compass Knowledge Graph Schema (v5)
 -- PRAGMAs are set programmatically in GraphStore.open()
 
 -- Indexed source files
@@ -142,5 +142,6 @@ CREATE INDEX IF NOT EXISTS idx_gql_field ON graphql_resolvers(field_name);
 CREATE INDEX IF NOT EXISTS idx_gql_parent ON graphql_resolvers(parent_type, field_name);
 CREATE INDEX IF NOT EXISTS idx_call_sites_node ON call_sites(node_id);
 CREATE INDEX IF NOT EXISTS idx_call_sites_target ON call_sites(target);
+CREATE INDEX IF NOT EXISTS idx_call_sites_receiver ON call_sites(receiver);
 CREATE INDEX IF NOT EXISTS idx_jsx_usages_node ON jsx_usages(node_id);
 CREATE INDEX IF NOT EXISTS idx_jsx_usages_element ON jsx_usages(element_name);

@@ -87,7 +87,7 @@ async function test_should_create_db_with_schema_version() {
   try {
     const store = GraphStore.open(dbPath);
     const version = store.schemaVersion();
-    assert('create: schema version is 4', version === 4, `got ${version}`);
+    assert('create: schema version is 5', version === 5, `got ${version}`);
     store.close();
   } finally { cleanup(dbPath); }
 }
@@ -272,7 +272,7 @@ async function test_should_rebuild_on_version_mismatch() {
     // Re-open — should detect mismatch and rebuild
     const store2 = GraphStore.open(dbPath);
     const version = store2.schemaVersion();
-    assert('rebuild: version reset to current', version === 4, `got ${version}`);
+    assert('rebuild: version reset to current', version === 5, `got ${version}`);
     const results = store2.searchSymbols('OldClass');
     assert('rebuild: old data gone', results.length === 0, `got ${results.length}`);
     store2.close();

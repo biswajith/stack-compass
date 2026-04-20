@@ -32,11 +32,13 @@ export interface ContextEntry {
 
 // ── get-callers: reverse BFS on "calls" edges ────────────────────────────
 
+const MAX_TRAVERSAL_DEPTH = 10;
+
 export function getCallers(store: GraphStore, symbolName: string, depth: number = 2, module?: string): TraversalEntry[] {
   const seedNodes = store.getNodesByName(symbolName, module ? { module } : undefined);
   if (seedNodes.length === 0) return [];
 
-  return bfsTraverse(store, seedNodes.map(n => n.id), depth, 'reverse', ['calls']);
+  return bfsTraverse(store, seedNodes.map(n => n.id), Math.min(depth, MAX_TRAVERSAL_DEPTH), 'reverse', ['calls']);
 }
 
 // ── get-callees: forward BFS on "calls" edges ───────────────────────────
@@ -45,7 +47,7 @@ export function getCallees(store: GraphStore, symbolName: string, depth: number 
   const seedNodes = store.getNodesByName(symbolName, module ? { module } : undefined);
   if (seedNodes.length === 0) return [];
 
-  return bfsTraverse(store, seedNodes.map(n => n.id), depth, 'forward', ['calls']);
+  return bfsTraverse(store, seedNodes.map(n => n.id), Math.min(depth, MAX_TRAVERSAL_DEPTH), 'forward', ['calls']);
 }
 
 // ── get-impact: reverse BFS on ALL edge types ───────────────────────────
@@ -62,7 +64,7 @@ export function getImpact(store: GraphStore, symbolName: string, depth: number =
     for (const c of children) seedIds.add(c.id);
   }
 
-  const entries = bfsTraverse(store, [...seedIds], depth, 'reverse', null);
+  const entries = bfsTraverse(store, [...seedIds], Math.min(depth, MAX_TRAVERSAL_DEPTH), 'reverse', null);
 
   let directCount = 0;
   let transitiveCount = 0;
@@ -93,6 +95,9 @@ const STOP_WORDS = new Set([
   'up', 'down', 'out', 'off', 'over', 'under', 'again',
   'all', 'each', 'every', 'both', 'few', 'more', 'most', 'some', 'any', 'no',
   'just', 'very', 'also', 'too', 'only',
+  'fix', 'add', 'update', 'change', 'remove', 'refactor', 'implement',
+  'delete', 'modify', 'make', 'move', 'rename', 'write',
+  'check', 'find', 'look', 'get', 'set', 'new',
 ]);
 
 export function extractTerms(task: string): string[] {

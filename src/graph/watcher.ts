@@ -56,10 +56,13 @@ export class FileWatcher {
     }
   }
 
-  stop(): void {
+  stop(flush = false): void {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
+    }
+    if (flush && this.pending.size > 0) {
+      this.flush();
     }
     for (const w of this.watchers) {
       try { w.close(); } catch { /* ignore */ }
