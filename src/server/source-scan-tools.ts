@@ -4,6 +4,8 @@ import { z } from 'zod/v3';
 import { ServerContext } from './context.js';
 import { moduleToDocSections, formatModuleMarkdown } from '../source-scanner/index.js';
 import { formatTreeIndex } from './formatters.js';
+import { GraphStore } from '../graph/index.js';
+import { resolveAllEdges } from '../graph/resolvers/index.js';
 
 /**
  * Strip absolute path prefixes from a string, leaving only project-relative paths.
@@ -64,6 +66,28 @@ export function registerSourceScanTools(ctx: ServerContext): void {
         ctx.scannedModules.clear();
         ctx.detectedInternalDeps = [];
 
+        // Initialize graph store lazily at the project root (reuse if same path)
+        try {
+          const graphDbDir = path.join(resolvedRoot, '.stack-compass');
+          const graphDbPath = path.join(graphDbDir, 'graph.db');
+          if (ctx.graphDbPath !== graphDbPath) {
+            let newStore: GraphStore | null = null;
+            try {
+              newStore = GraphStore.open(graphDbPath);
+            } catch (openErr) {
+              if (newStore) { try { newStore.close(); } catch { /* ok */ } }
+              throw openErr;
+            }
+            if (ctx.graphStore) { try { ctx.graphStore.close(); } catch { /* ok */ } }
+            ctx.graphStore = newStore;
+            ctx.graphDbPath = graphDbPath;
+          }
+        } catch (err) {
+          if (ctx.graphStore) { try { ctx.graphStore.close(); } catch { /* ok */ } }
+          ctx.graphStore = null;
+          ctx.graphDbPath = null;
+        }
+
         const deps = ctx.internalDepsDetector.detect(resolvedRoot);
         ctx.detectedInternalDeps = ctx.internalDepsDetector.resolveSourcePaths(resolvedRoot, deps);
 
@@ -118,6 +142,11 @@ export function registerSourceScanTools(ctx: ServerContext): void {
               if (baseName !== moduleName && !ctx.scannedModules.has(baseName)) {
                 ctx.scannedModules.set(baseName, scanned);
               }
+              if (ctx.graphStore) {
+                try { ctx.graphStore.ingestModule(scanned); } catch (ge) {
+                  scanWarnings.push(`Graph ingestion failed for ${moduleName}: ${ge instanceof Error ? ge.message : String(ge)}`);
+                }
+              }
               const s = scanned.summary;
               r += `### ${moduleName}\n`;
               r += `- Language: ${scanned.language} | Files: ${s.totalFiles} | Symbols: ${s.totalSymbols}\n`;
@@ -131,6 +160,16 @@ export function registerSourceScanTools(ctx: ServerContext): void {
               r += `### ${moduleName}\n- Error scanning: ${errMsg}\n\n`;
             }
           }
+        }
+
+        if (ctx.graphStore) {
+          try { resolveAllEdges(ctx.graphStore); } catch (re) {
+            scanWarnings.push(`Edge resolution failed: ${re instanceof Error ? re.message : String(re)}`);
+          }
+          const gs = ctx.graphStore.getStats();
+          r += `## Knowledge Graph\n\n`;
+          r += `- Nodes: ${gs.totalNodes} | Edges: ${gs.totalEdges} | Files: ${gs.totalFiles}\n`;
+          r += `- DB: \`.stack-compass/graph.db\`\n\n`;
         }
 
         const allWarnings = [

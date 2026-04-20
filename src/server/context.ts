@@ -3,6 +3,7 @@ import { DocFetcher } from '../fetcher/index.js';
 import { ProjectStack, MonorepoConfig } from '../types/index.js';
 import { SourceScanner, ScannedModule } from '../source-scanner/index.js';
 import { InternalDepsDetector, InternalDependency, InternalPatternConfig, DEFAULT_PATTERNS } from '../internal-deps/index.js';
+import type { GraphStore } from '../graph/index.js';
 
 export interface ServerContext {
   server: McpServer;
@@ -14,6 +15,8 @@ export interface ServerContext {
   internalPatterns: InternalPatternConfig;
   scannedModules: Map<string, ScannedModule>;
   detectedInternalDeps: InternalDependency[];
+  graphStore: GraphStore | null;
+  graphDbPath: string | null;
 }
 
 export function findDetectedVersion(ctx: ServerContext, docKey: string): string | undefined {

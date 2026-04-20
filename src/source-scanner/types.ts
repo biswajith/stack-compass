@@ -5,6 +5,14 @@ export interface ExtractedSymbol {
   signature?: string;
   docComment?: string;
   annotations?: string[];
+  extends?: string;
+  implements?: string[];
+  callSites?: Array<{ target: string; receiver?: string }>;
+  jsxElements?: string[];
+  gqlOperationType?: 'query' | 'mutation' | 'subscription';
+  gqlFields?: string[];
+  apiMethod?: string;
+  apiPath?: string;
   location: { startLine: number; endLine: number };
   children?: ExtractedSymbol[];
 }
@@ -14,7 +22,8 @@ export type SymbolKind =
   | 'method' | 'constructor' | 'field' | 'constant'
   | 'function' | 'type' | 'trait' | 'object' | 'case-class'
   | 'component' | 'hook'
-  | 'query' | 'mutation' | 'subscription' | 'graphql-type' | 'graphql-input' | 'graphql-enum';
+  | 'query' | 'mutation' | 'subscription' | 'graphql-type' | 'graphql-input' | 'graphql-enum'
+  | 'gql-operation' | 'api-call';
 
 export interface ScannedFile {
   filePath: string;
@@ -49,6 +58,13 @@ export interface RestEndpoint {
   path: string;
   handler: string;
   file: string;
+}
+
+export interface GqlResolverInfo {
+  methodName: string;
+  fieldName: string;
+  parentType: string;
+  operationType: 'query' | 'mutation' | 'subscription';
 }
 
 export type SupportedLanguage = 'java' | 'typescript' | 'tsx' | 'scala' | 'graphql' | 'javascript';

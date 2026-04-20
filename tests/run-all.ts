@@ -7,6 +7,13 @@ import { testSourceScanner } from './unit/source-scanner.test.js';
 import { testInternalDeps } from './unit/internal-deps.test.js';
 import { testGitHubToken } from './unit/github-token.test.js';
 import { testUrlFetcher } from './unit/url-fetcher.test.js';
+import { testGraphStore } from './unit/graph-store.test.js';
+import { testEdgeResolvers } from './unit/edge-resolvers.test.js';
+import { testGraphTraversal } from './unit/graph-traversal.test.js';
+import { testCrossLanguage } from './unit/cross-language.test.js';
+import { testIncrementalSync, testFileWatcher } from './unit/incremental-sync.test.js';
+import { testGraphSafety } from './unit/code-review-fixes.test.js';
+import { testGraphResilience } from './unit/graph-resilience.test.js';
 
 // Integration tests
 import { testAnalyzeProject } from './integration/analyze-project.test.js';
@@ -16,6 +23,9 @@ import { testDocSection } from './integration/doc-section.test.js';
 import { testFrameworkManagement } from './integration/framework-management.test.js';
 import { testSupportedFrameworks } from './integration/supported-frameworks.test.js';
 import { testSourceScanTools } from './integration/source-scan-tools.test.js';
+import { testGraphTools } from './integration/graph-tools.test.js';
+import { testGraphTraversalTools } from './integration/graph-traversal-tools.test.js';
+import { testGraphPerformance } from './integration/graph-performance.test.js';
 
 // Workflow tests
 import { testFullWorkflow } from './workflow/full-workflow.test.js';
@@ -37,6 +47,14 @@ async function run() {
   await testInternalDeps();
   testGitHubToken();
   testUrlFetcher();
+  await testGraphStore();
+  await testEdgeResolvers();
+  await testGraphTraversal();
+  await testCrossLanguage();
+  await testIncrementalSync();
+  await testFileWatcher();
+  await testGraphSafety();
+  await testGraphResilience();
 
   // Integration
   await testAnalyzeProject();
@@ -46,6 +64,9 @@ async function run() {
   await testFrameworkManagement();
   await testSupportedFrameworks();
   await testSourceScanTools();
+  await testGraphTools();
+  await testGraphTraversalTools();
+  await testGraphPerformance();
 
   // Workflow (mock LLM ↔ MCP server conversation)
   await testFullWorkflow();

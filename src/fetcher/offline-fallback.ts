@@ -11,6 +11,10 @@ const OFFLINE_FALLBACK: Record<string, string> = {
   'spring-security': 'Spring Security handles authentication and authorization. v5 uses WebSecurityConfigurerAdapter + antMatchers; v6 uses SecurityFilterChain beans + requestMatchers with lambda DSL.',
   'junit': 'JUnit is the standard Java testing framework. JUnit 4 uses @Before/@After and @RunWith; JUnit 5 uses @BeforeEach/@AfterEach, @ExtendWith, and @ParameterizedTest.',
   'akka': 'Akka is a toolkit for building concurrent, distributed JVM applications with typed actors, streams (Source/Flow/Sink with backpressure), HTTP routing, and cluster sharding.',
+  'langchain': 'LangChain is a Python framework for building LLM-powered applications. Core concepts: chains (sequential LLM calls), agents (tool-using LLMs), retrievers (RAG), prompt templates, memory, and output parsers.',
+  'langchain-js': 'LangChain.js is the TypeScript/JavaScript port of LangChain. Build chains, agents, and RAG pipelines in Node.js. Key APIs: ChatOpenAI, PromptTemplate, RunnableSequence, tool calling, and vector stores.',
+  'langgraph': 'LangGraph is a low-level orchestration framework for building stateful agents. Define workflows as graphs with nodes (functions) and edges (transitions). Supports persistence, human-in-the-loop, streaming, and multi-agent architectures.',
+  'google-adk': 'Google Agent Development Kit (ADK) for Java is a code-first toolkit for building AI agents. Core concepts: BaseAgent, LlmAgent, tool definitions, multi-agent composition, sessions, and built-in evaluation. Maven: com.google.adk:google-adk.',
 };
 
 export function offlineFallback(frameworkKey: string): string {

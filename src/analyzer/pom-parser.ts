@@ -66,6 +66,7 @@ export function parsePomXml(filePath: string): DetectedFramework[] {
       { pattern: /lombok/i, name: 'lombok', category: 'other', docKey: 'lombok' },
       { pattern: /spring-webflux/i, name: 'spring-webflux', category: 'backend', docKey: 'spring-framework' },
       { pattern: /jedis|lettuce|spring-data-redis/i, name: 'redis', category: 'database', docKey: 'redis' },
+      { pattern: /com\.google\.adk|google-adk/i, name: 'google-adk', category: 'backend', docKey: 'google-adk' },
     ];
 
     for (const dep of pomDeps) {

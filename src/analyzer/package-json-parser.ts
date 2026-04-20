@@ -38,6 +38,8 @@ export function parsePackageJson(filePath: string): DetectedFramework[] {
       { names: ['axios'], category: 'api' },
       { names: ['swr'], category: 'api' },
       { names: ['@tanstack/react-query'], category: 'api' },
+      { names: ['langchain', '@langchain/core', '@langchain/openai'], category: 'backend', docKey: 'langchain-js' },
+      { names: ['@langchain/langgraph'], category: 'backend', docKey: 'langgraph' },
     ];
 
     for (const t of targets) {
