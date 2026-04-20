@@ -620,45 +620,233 @@ Output: { totalNodes: 387, totalEdges: 1204, totalFiles: 42,
 
 ---
 
-## Phase 5: Google ADK Support
+## Phase 5: GenAI Framework Support (Future)
 
-**Goal:** First-class support for Google Agent Development Kit.
+**Goal:** First-class knowledge graph support for GenAI/agent frameworks — Google ADK, LangChain ecosystem (LangChain, LangGraph, LangSmith, LangServe), CrewAI, and related orchestration tools. This phase is deferred — the plan below captures the full scope for future implementation.
 
-### Detection (analyzer)
+**Status:** PLANNED — not yet implemented.
 
+### 5A: Python Extractor (prerequisite for all Python-based GenAI frameworks)
+
+**Why:** Google ADK, LangChain, LangGraph, and CrewAI are primarily Python frameworks. Stack Compass currently has no Python extractor. This is the critical prerequisite.
+
+**Implementation:**
+- Add `tree-sitter-python` WASM grammar to the parser
+- New file: `src/source-scanner/python-extractor.ts`
+- Add `'python'` to `SupportedLanguage`
+- Extract from Python AST:
+  - Classes (including `__init__`, class variables, decorators)
+  - Functions/methods (including `async def`)
+  - Decorators as annotations (e.g., `@tool`, `@chain`, `@agent`)
+  - Imports (`import x`, `from x import y`, relative imports)
+  - Type hints (for DI-style resolution)
+  - Docstrings (as `docComment`)
+- Detect `.py` files in `findSourceFiles`
+- Estimated effort: comparable to the existing Java extractor
+
+### 5B: Google ADK
+
+**Detection:**
 - New file: `src/analyzer/adk-detector.ts`
-- Detect ADK projects by:
+- Detect by:
   - Python: `google-adk` or `google-genai` in `requirements.txt` / `pyproject.toml`
   - TypeScript/JS: `@google/genai` or `@google/adk` in `package.json`
   - Presence of `agent.py`, `agent.ts`, or ADK config files
-- Add `google-adk` to the framework registry in `types/registry.ts` with doc URLs
+- Add `google-adk` to the framework registry with doc URLs:
+  - `https://google.github.io/adk-docs/`
+  - `https://ai.google.dev/gemini-api/docs`
 
-### Extraction (source scanner)
+**Extraction targets (Python):**
+- Agent class definitions: subclasses of `Agent`, `LlmAgent`, `SequentialAgent`, `ParallelAgent`, `LoopAgent`
+- Tool declarations: `@tool` decorator, `FunctionDeclaration`, `google.adk.tools.Tool` subclasses
+- Sub-agent references: `sub_agents=[agent_a, agent_b]` in agent constructors
+- Model configuration: `model="gemini-2.0-flash"` or `model=` parameter
+- Callback definitions: `before_model_callback`, `after_model_callback`
+- State schemas: `input_schema`, `output_schema` Pydantic models
+- Session/memory config: `SessionService`, `MemoryService` references
 
-**Prerequisite: Python extractor.** Stack Compass does not currently have a Python extractor. ADK's primary language is Python, so this phase requires building a new `python-extractor.ts` using Tree-sitter's Python grammar. This is a significant sub-effort that includes: adding the `tree-sitter-python` WASM grammar, writing AST extraction for classes/functions/decorators/imports, and adding `'python'` to `SupportedLanguage`. Estimate: comparable to the existing Java extractor in scope.
+**Extraction targets (TypeScript, if used):**
+- `new Agent({ ... })`, `new LlmAgent({ ... })` constructor patterns
+- Tool arrays: `tools: [myTool, anotherTool]`
+- Model bindings: `model: 'gemini-2.0-flash'`
 
-**Alternative:** If the mono-repo uses ADK via TypeScript/JS (`@google/genai`), the existing `typescript-extractor.ts` can be extended instead, avoiding the Python extractor prerequisite. Start here if the team's ADK usage is TypeScript-based.
+**Edge resolution:**
+- `composes` edges: Agent → sub-agent (from `sub_agents` list)
+- `uses_tool` edges: Agent → Tool (from `tools` list or `@tool` decorated functions)
+- `uses_model` edges: Agent → model identifier node
+- `calls` edges: Tool function body → backend service/REST endpoint (reuses existing call resolver)
+- `configures` edges: Agent → callback functions, state schemas
 
-Extraction targets:
-- Agent class definitions (subclasses of `Agent`, `LlmAgent`, etc.)
-- Tool declarations (`@tool` decorator in Python, `FunctionDeclaration` in TS)
-- Sub-agent references (agent composition trees)
-- Model configuration (`model="gemini-2.0-flash"`)
-- Flow definitions and state schemas
+**New SymbolKinds:** `'agent'`, `'tool-decl'`, `'model-config'`, `'state-schema'`
 
-### Edge resolution
+**New edge kinds:** `'composes'`, `'uses_tool'`, `'uses_model'`, `'configures'`
 
-- Agent → sub-agent edges (agent composition)
-- Agent → tool edges (tool declarations)
-- Tool → backend service edges (if tool handlers call REST endpoints or internal services)
+### 5C: LangChain Ecosystem
 
-### Scope note
+Covers: `langchain`, `langchain-core`, `langchain-community`, `langchain-openai`, `langchain-google-genai`, `langserve`, `langsmith`
 
-This phase is exploratory. ADK's patterns are still evolving and there isn't a stable set of AST patterns to extract from. Start with detection + basic extraction, iterate as ADK matures.
+**Detection:**
+- Python: `langchain`, `langchain-core`, `langchain-community`, `langchain-openai`, `langchain-google-genai` in `requirements.txt` / `pyproject.toml`
+- TypeScript/JS: `langchain`, `@langchain/core`, `@langchain/openai`, `@langchain/google-genai` in `package.json`
+- Add each as a framework in the registry with doc URLs:
+  - `https://python.langchain.com/docs/`
+  - `https://js.langchain.com/docs/`
+  - `https://api.python.langchain.com/`
+  - `https://docs.smith.langchain.com/`
+
+**Extraction targets:**
+
+*Chains & Runnables (langchain-core):*
+- `RunnableSequence`, `RunnableLambda`, `RunnablePassthrough`, `RunnableBranch` compositions
+- LCEL pipe operator chains: `prompt | llm | parser` (detect `__or__` / `pipe()` patterns)
+- `@chain` decorator for custom chains
+
+*Chat models & LLMs:*
+- `ChatOpenAI(model="gpt-4")`, `ChatGoogleGenerativeAI(model="gemini-pro")` — extract model bindings
+- Custom LLM subclasses
+- Embedding model references
+
+*Prompts:*
+- `ChatPromptTemplate.from_messages([...])` — extract template variable names
+- `PromptTemplate(template="...", input_variables=[...])` — extract input variables
+- `FewShotPromptTemplate` and example selectors
+
+*Tools:*
+- `@tool` decorator (same as ADK, shared extraction logic)
+- `StructuredTool` subclasses with `name`, `description`, `args_schema`
+- `Tool.from_function(...)` factory pattern
+- `BaseTool` subclasses with `_run()` / `_arun()` methods
+
+*Retrievers & Vector Stores:*
+- `VectorStoreRetriever`, `SelfQueryRetriever`, `MultiQueryRetriever`
+- Vector store bindings: `Chroma`, `FAISS`, `Pinecone`, `Weaviate` constructors
+- `RecursiveCharacterTextSplitter`, `CharacterTextSplitter` references
+
+*Agents (legacy & modern):*
+- `create_react_agent(llm, tools, prompt)` — the ReAct pattern
+- `create_openai_functions_agent(llm, tools, prompt)`
+- `AgentExecutor(agent=..., tools=[...])` — extract agent→tool bindings
+- `create_tool_calling_agent(llm, tools, prompt)` — tool-calling pattern
+
+*Output parsers:*
+- `StrOutputParser`, `JsonOutputParser`, `PydanticOutputParser` references
+- `OutputFixingParser` chains
+
+*LangServe (deployment):*
+- `add_routes(app, chain, path="/my-chain")` — extract served chain endpoints
+- Maps to REST endpoint concept — creates `serves` edges linking chain to URL path
+
+*LangSmith (observability):*
+- `@traceable` decorator — marks functions as traced
+- `RunTree` usage for custom tracing
+- `Client().create_dataset(...)` — dataset references
+
+**Edge resolution:**
+- `chain_step` edges: RunnableSequence step N → step N+1 (LCEL pipe order)
+- `uses_tool` edges: Agent/AgentExecutor → Tool (shared with ADK)
+- `uses_model` edges: Chain/Agent → ChatModel/LLM
+- `uses_retriever` edges: Chain → Retriever → VectorStore
+- `uses_prompt` edges: Chain → PromptTemplate
+- `serves` edges: LangServe route → Chain (links to REST path concept)
+- `traces` edges: `@traceable` function → LangSmith trace
+
+**New SymbolKinds:** `'chain'`, `'runnable'`, `'prompt-template'`, `'retriever'`, `'vector-store'`, `'output-parser'`
+
+### 5D: LangGraph
+
+Covers: `langgraph`, `langgraph-checkpoint`, `langgraph-sdk`
+
+**Detection:**
+- Python: `langgraph` in `requirements.txt` / `pyproject.toml`
+- TypeScript/JS: `@langchain/langgraph` in `package.json`
+
+**Extraction targets:**
+- `StateGraph(State)` — extract state schema (TypedDict / Pydantic model)
+- `.add_node("name", function)` — graph nodes with handler functions
+- `.add_edge("from", "to")` — static edges
+- `.add_conditional_edges("from", router_fn, {mapping})` — conditional routing
+- `.set_entry_point("node_name")` — entry point
+- `.set_finish_point("node_name")` — terminal node
+- `ToolNode(tools=[...])` — tool node with tool list
+- `create_react_agent(model, tools)` — prebuilt ReAct agent graph
+- Checkpointer references: `MemorySaver`, `SqliteSaver`, `PostgresSaver`
+- Human-in-the-loop: `interrupt_before`, `interrupt_after` configuration
+- Subgraph composition: graph used as a node in another graph
+
+**Edge resolution:**
+- `graph_edge` edges: Node → Node (static edges from `.add_edge`)
+- `graph_conditional` edges: Node → conditional targets (from `.add_conditional_edges`)
+- `graph_entry` edge: START → entry node
+- `graph_exit` edge: terminal node → END
+- `handles` edges: Graph node name → handler function
+- `uses_state` edges: Graph → State schema class
+- `composes` edges: Parent graph → subgraph (when a graph is used as a node)
+
+**New SymbolKinds:** `'state-graph'`, `'graph-node'`, `'graph-edge'`, `'checkpointer'`
+
+**MCP tool enhancement:**
+- `build-context` should understand graph topology — when asked about a LangGraph workflow, return the full node/edge structure including conditional routing, not just caller/callee chains
+
+### 5E: CrewAI (optional, lower priority)
+
+**Detection:**
+- Python: `crewai` in `requirements.txt` / `pyproject.toml`
+
+**Extraction targets:**
+- `Agent(role="...", goal="...", backstory="...", tools=[...])` — agent definitions
+- `Task(description="...", agent=agent, expected_output="...")` — task definitions
+- `Crew(agents=[...], tasks=[...], process=Process.sequential)` — crew composition
+- `@tool` decorator (shared with LangChain/ADK)
+- `@CrewBase` class decorator for structured crews
+
+**Edge resolution:**
+- `crew_member` edges: Crew → Agent
+- `assigned_to` edges: Task → Agent
+- `uses_tool` edges: Agent → Tool (shared)
+- `task_sequence` edges: Task N → Task N+1 (for sequential process)
+
+### 5F: Cross-Framework GenAI Resolution
+
+When a codebase uses multiple GenAI frameworks (common in production), create edges across framework boundaries:
+
+- **LangChain tool → ADK tool:** Same function used as tool in both frameworks
+- **LangGraph node → LangChain chain:** A graph node handler that runs a LangChain chain
+- **ADK agent → LangChain retriever:** ADK tool that calls a LangChain retrieval chain
+- **Any agent → Spring REST:** Tool handler calls a Spring endpoint (already supported via existing call/REST resolution)
+- **LangServe endpoint → React frontend:** `fetch("/my-chain/invoke")` in React → LangServe route (extends existing REST matching)
+
+This creates a unified graph across: `React → LangServe → LangChain Chain → LangGraph Workflow → ADK Agent → Spring Backend`
+
+### Implementation strategy
+
+**Recommended build order for Phase 5:**
+
+```
+5A (Python extractor) → 5B (ADK) → 5C (LangChain) → 5D (LangGraph) → 5E (CrewAI) → 5F (Cross-framework)
+```
+
+- 5A is the critical-path prerequisite — without it, no Python framework works
+- 5B and 5C can run in parallel after 5A since they're independent frameworks
+- 5D depends on 5C (LangGraph builds on LangChain concepts)
+- 5E is optional and lowest priority
+- 5F is the integration layer — do last when individual frameworks are solid
+
+**New tables:**
+- `agent_tools (node_id, tool_node_id)` — agent-to-tool bindings
+- `model_bindings (node_id, model_name, provider)` — model configuration
+- `graph_topology (graph_node_id, from_name, to_name, condition)` — LangGraph edges
+- `served_routes (node_id, path, method)` — LangServe endpoints (extends `rest_endpoints` concept)
+
+**New dependency:**
+- `tree-sitter-python` WASM grammar (for 5A)
+
+**Estimated total effort:** Large — 5A alone is medium, plus 4-5 framework-specific extractors and resolvers. Recommend implementing incrementally, one framework at a time, with real codebase validation after each.
 
 ---
 
-## Phase 6: Test Impact Analysis (Optional)
+## Phase 6: Test Impact Analysis (Deferred)
+
+**Status:** DEFERRED — LLMs can infer affected tests via `get-impact`/`build-context` and grep, and CI systems handle test selection. Revisit if manual test targeting becomes a bottleneck.
 
 **Goal:** Given changed files, find which tests are affected.
 
@@ -783,8 +971,10 @@ All changes are additive — existing return types gain optional fields, existin
 | 7 new MCP tools | `src/server/graph-tools.ts` (search-symbols, get-symbol-detail, graph-status, get-callers, get-callees, get-impact, build-context) |
 | Incremental sync | `src/graph/sync.ts` |
 | File watcher | `src/graph/watcher.ts` |
-| Google ADK detector | `src/analyzer/adk-detector.ts` |
-| Test impact tool | `src/server/graph-tools.ts` (affected-tests) |
+| Python extractor (5A) | `src/source-scanner/python-extractor.ts` |
+| GenAI detectors (5B-5E) | `src/analyzer/adk-detector.ts`, `langchain-detector.ts`, `crewai-detector.ts` |
+| GenAI resolvers (5B-5F) | `src/graph/resolvers/agent-resolver.ts`, `langchain-resolver.ts`, `langgraph-resolver.ts` |
+| Test impact tool (6) | `src/server/graph-tools.ts` (affected-tests) |
 | Test fixtures | `tests/fixtures/cross-language-mono/` |
 
 ### New dependencies
@@ -793,6 +983,7 @@ All changes are additive — existing return types gain optional fields, existin
 |---|---|---|
 | `better-sqlite3` | SQLite with FTS5 | **New dependency** — add to `dependencies`. Requires native compilation (prebuilds available). |
 | `@types/better-sqlite3` | TypeScript types | Add to `devDependencies`. |
+| `tree-sitter-python` | Python AST parsing (Phase 5A) | WASM grammar for Python extractor. Add when implementing Phase 5A. |
 
 ### Phase order and rationale
 
@@ -804,12 +995,19 @@ All changes are additive — existing return types gain optional fields, existin
 | 3A: Graph query tools | Phase 1 | Small | search-symbols, get-symbol-detail, graph-status |
 | 3B: Graph traversal tools | Phase 2A | Medium | get-callers, get-callees, get-impact, build-context |
 | 4: Incremental sync | Phase 1 | Small | Performance — avoid redundant work |
-| 5: Google ADK | Phase 1 | Medium-Large | Requires Python extractor or TS-only ADK extraction |
+| 5A: Python extractor | Phase 1 | Medium | Prerequisite for all Python GenAI frameworks |
+| 5B: Google ADK | Phase 5A | Medium | Agent/tool/sub-agent extraction and resolution |
+| 5C: LangChain ecosystem | Phase 5A | Medium-Large | Chains, tools, retrievers, prompts, LangServe, LangSmith |
+| 5D: LangGraph | Phase 5A + 5C | Medium | State graphs, nodes, conditional edges, checkpointers |
+| 5E: CrewAI | Phase 5A | Small | Agents, tasks, crews (optional, lower priority) |
+| 5F: Cross-framework GenAI | Phase 5B + 5C + 5D | Medium | Unified graph across GenAI + Spring + React |
 | 6: Test impact | Phase 2A | Small | Requires scanner change to index test files |
 
-**Recommended build order:** 1 → 3A → 2A → 3B → 2B → 4 → 5/6
+**Completed build order:** 1 → 3A → 2A → 3B → 2B → 4 ✅
 
-This order delivers usable tools early: after Phase 1 + 3A, users can search symbols. After Phase 2A + 3B, they get callers/callees/impact within each language. Phase 2B adds the cross-language chain as the final capability layer.
+**Next build order:** 5A → 5B/5C → 5D → 5E → 5F (Phase 6 deferred)
+
+This order delivers usable tools early: after Phase 1 + 3A, users can search symbols. After Phase 2A + 3B, they get callers/callees/impact within each language. Phase 2B adds the cross-language chain as the final capability layer. Phase 5 adds GenAI framework intelligence incrementally, starting with the Python extractor foundation.
 
 ### The differentiator
 
