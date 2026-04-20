@@ -24,6 +24,7 @@ import { testSupportedFrameworks } from './integration/supported-frameworks.test
 import { testSourceScanTools } from './integration/source-scan-tools.test.js';
 import { testGraphTools } from './integration/graph-tools.test.js';
 import { testGraphTraversalTools } from './integration/graph-traversal-tools.test.js';
+import { testGraphPerformance } from './integration/graph-performance.test.js';
 
 // Workflow tests
 import { testFullWorkflow } from './workflow/full-workflow.test.js';
@@ -63,6 +64,7 @@ async function run() {
   await testSourceScanTools();
   await testGraphTools();
   await testGraphTraversalTools();
+  await testGraphPerformance();
 
   // Workflow (mock LLM ↔ MCP server conversation)
   await testFullWorkflow();
