@@ -417,6 +417,12 @@ export class GraphStore {
     return this._getEdgesTo.all(targetId) as EdgeRow[];
   }
 
+  deleteEdgesByKinds(kinds: string[]): void {
+    if (kinds.length === 0) return;
+    const placeholders = kinds.map(() => '?').join(',');
+    this.db.prepare(`DELETE FROM edges WHERE kind IN (${placeholders})`).run(...kinds);
+  }
+
   // ── Annotations ──────────────────────────────────────────────────────
 
   insertAnnotation(nodeId: number, name: string, value: string | null, raw: string | null): void {

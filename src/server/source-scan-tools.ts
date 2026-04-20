@@ -71,12 +71,19 @@ export function registerSourceScanTools(ctx: ServerContext): void {
           const graphDbDir = path.join(resolvedRoot, '.stack-compass');
           const graphDbPath = path.join(graphDbDir, 'graph.db');
           if (ctx.graphDbPath !== graphDbPath) {
-            const newStore = GraphStore.open(graphDbPath);
+            let newStore: GraphStore | null = null;
+            try {
+              newStore = GraphStore.open(graphDbPath);
+            } catch (openErr) {
+              if (newStore) { try { newStore.close(); } catch { /* ok */ } }
+              throw openErr;
+            }
             if (ctx.graphStore) { try { ctx.graphStore.close(); } catch { /* ok */ } }
             ctx.graphStore = newStore;
             ctx.graphDbPath = graphDbPath;
           }
         } catch (err) {
+          if (ctx.graphStore) { try { ctx.graphStore.close(); } catch { /* ok */ } }
           ctx.graphStore = null;
           ctx.graphDbPath = null;
         }

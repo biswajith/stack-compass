@@ -1003,9 +1003,79 @@ All changes are additive — existing return types gain optional fields, existin
 | 5F: Cross-framework GenAI | Phase 5B + 5C + 5D | Medium | Unified graph across GenAI + Spring + React |
 | 6: Test impact | Phase 2A | Small | Requires scanner change to index test files |
 
-**Completed build order:** 1 → 3A → 2A → 3B → 2B → 4 ✅
+**Completed build order:** 1 → 3A → 2A → 3B → 2B → 4 ✅ (+ 4 rounds of code review fixes)
 
 **Next build order:** 5A → 5B/5C → 5D → 5E → 5F (Phase 6 deferred)
+
+---
+
+## Code Review Findings & Fixes Log
+
+Across 4 independent code reviews, the following issues were identified and resolved. This log exists to prevent regressions and inform future development.
+
+### Review 1 — Security & Correctness Foundation
+
+| # | Severity | Issue | Fix | File(s) |
+|---|----------|-------|-----|---------|
+| R1-C1 | CRITICAL | FTS5 query injection via unsanitized MATCH input | Added `sanitizeFtsQuery()` — strips FTS5 operators, wraps tokens in quotes | `store.ts` |
+| R1-C2 | CRITICAL | LIKE injection in `getNodesByNameSuffix` via `%`, `_` wildcards | Escape `\`, `%`, `_` with `ESCAPE '\'` clause | `store.ts` |
+| R1-C3 | CRITICAL | `module` param on `get-callers`/`get-callees`/`get-impact` declared but unused | Wired through `graph-tools.ts` → `traversal.ts` → `store.getNodesByName` | `graph-tools.ts`, `traversal.ts` |
+| R1-C4 | CRITICAL | N+1 query storm in `rest-resolver` and `spring-resolver` | Refactored to bulk queries (`getAllRestEndpoints`, `getApiCalls`, `getClassesWithImplements`) + in-memory maps | `rest-resolver.ts`, `spring-resolver.ts`, `store.ts` |
+| R1-C5 | CRITICAL | Double-lookup bug in `buildQualifiedName` | Simplified to single `db.prepare` call | `store.ts` |
+| R1-S1 | SUGGESTION | `@RequestMapping` with no method defaulted to GET, never matched ANY | `rest-resolver.ts` now checks `ep.method === 'ANY'`; class-level mappings no longer stored as endpoints | `rest-resolver.ts`, `store.ts` |
+| R1-S2 | SUGGESTION | Edge resolution warnings rendered before resolution ran | Moved `resolveAllEdges()` call before warnings section | `source-scan-tools.ts` |
+| R1-S3 | SUGGESTION | Structural hash missing `extends`, `implements`, `callSites`, `jsxElements`, GQL/API fields | Hash now includes all extracted symbol fields | `store.ts` |
+| R1-S4 | SUGGESTION | `as any[]` casts in store query methods | Replaced with proper typed arrays | `store.ts` |
+| R1-S5 | SUGGESTION | Schema comment said v1, was actually v4 | Updated to match `CURRENT_SCHEMA_VERSION` | `schema.sql` |
+| R1-S6 | SUGGESTION | `fs.watch` recursive limitation on Linux undocumented | Added JSDoc note | `watcher.ts` |
+| R1-S7 | SUGGESTION | Plan referenced `queries.ts` but queries are inline in `store.ts` | Updated plan | `PLAN-knowledge-graph.md` |
+
+**Tests added:** 14 in `tests/unit/graph-safety.test.ts`
+
+### Review 2 — Resilience & Performance
+
+| # | Severity | Issue | Fix | File(s) |
+|---|----------|-------|-----|---------|
+| R2-C1 | CRITICAL | Unbounded recursion in `resolveChildrenInheritance` on cyclic data | Added `visited: Set<number>` to prevent infinite recursion | `inheritance-resolver.ts` |
+| R2-C2 | CRITICAL | `upsertFile`/`insertNode` return stale ID from `lastInsertRowid` on `ON CONFLICT UPDATE` | Removed shortcut; always `SELECT` the ID after upsert | `store.ts` |
+| R2-S1 | SUGGESTION | `resolveWildcardImport` redundantly re-queried `getAllFiles()` | Passed `allFiles` as parameter from parent function | `import-resolver.ts` |
+| R2-S2 | SUGGESTION | Import resolver used O(n) `allFiles.find()` for TS relative paths | Built `Map<path, file>` for O(1) lookups | `import-resolver.ts` |
+| R2-S3 | SUGGESTION | No upper bound on `depth` parameter for traversal tools | Added `MAX_TRAVERSAL_DEPTH = 10` and `.max(10)` zod validation | `traversal.ts`, `graph-tools.ts` |
+| R2-S4 | SUGGESTION | Structural hash didn't include children recursively | Added `serializeSymbolForHash` helper for recursive hashing | `store.ts` |
+| R2-S5 | SUGGESTION | Performance test fixture builders used `any` types | Explicitly typed as `ScannedModule`/`ExtractedSymbol` | `graph-performance.test.ts` |
+| R2-S6 | SUGGESTION | `getNodesByFileId` name implied all nodes, returned only top-level | Renamed to `getTopLevelNodesByFileId` with deprecated alias | `store.ts` |
+| R2-N1 | NICE-TO-HAVE | `parseAnnotation` failed on array-style values `{"/v1", "/v2"}` | Updated regex to handle array syntax | `store.ts` |
+| R2-N2 | NICE-TO-HAVE | `extractTerms` kept low-discriminative action words (fix, add, update) | Added action verbs to `STOP_WORDS` | `traversal.ts` |
+| R2-N3 | NICE-TO-HAVE | `FileWatcher.stop()` discarded pending debounced changes | Added optional `flush` parameter | `watcher.ts` |
+| R2-N4 | NICE-TO-HAVE | Missing index on `call_sites.receiver` | Added `idx_call_sites_receiver` index, bumped schema to v5 | `schema.sql` |
+
+**Tests added:** 9 in `tests/unit/graph-resilience.test.ts`
+
+### Review 3 — FTS Safety, Prepared Statements, Single-Pass Sync
+
+| # | Severity | Issue | Fix | File(s) |
+|---|----------|-------|-----|---------|
+| R3-C1 | CRITICAL | `buildContext` bypassed `sanitizeFtsQuery` via `rawFts: true`; hyphens in terms could inject FTS5 operators | Removed `rawFts` usage; terms have hyphens stripped; `sanitizeFtsQuery` now preserves `OR` as FTS5 operator with safe trailing/consecutive handling | `traversal.ts`, `store.ts` |
+| R3-S1 | SUGGESTION | 6 hot-path `db.prepare()` calls recreated per invocation | Cached as class fields in constructor: `_getNodeById`, `_getFileById`, `_getEdgesFrom`, `_getEdgesTo`, `_getChildNodes`, `_getAnnotations` | `store.ts` |
+| R3-S2 | SUGGESTION | `IncrementalSync` read all files from disk 3x in worst case | Replaced with single-pass `getStaleInfo()` returning `{ changed, deleted, count }` | `sync.ts` |
+| R3-S3 | SUGGESTION | `resolveWildcardImport` queried `getTopLevelNodesByFileId` per file (N*W) | Pre-built `qualifiedIndex: Map<string, number>` from all files upfront | `import-resolver.ts` |
+| R3-S4 | SUGGESTION | Ambiguous call resolution returned arbitrary `matches[0]` | Returns `null` — skip ambiguous matches rather than create wrong edges | `call-resolver.ts`, `react-resolver.ts` |
+| R3-S5 | SUGGESTION | Dual REST extraction: java-extractor defaulted `@RequestMapping` to `GET`, store.ts used `ANY` | Unified: java-extractor now defaults to `ANY` | `java-extractor.ts` |
+| R3-S6 | SUGGESTION | `extractGqlResolver` in store.ts received parsed annotation value (structure already stripped) — regex couldn't match | Changed to receive raw annotation string so `field=`/`parentType=` regexes work | `store.ts` |
+| R3-S7 | SUGGESTION | `resolveGqlOperationToSchema` parsed `op.fields` JSON without try/catch | Wrapped in try/catch, skips malformed entries | `graphql-resolver.ts` |
+| R3-S8 | SUGGESTION | `source-scan-tools.ts` closed old store before opening new one — if open fails, old store lost | Open new store first, then close old | `source-scan-tools.ts` |
+| R3-N1 | NICE-TO-HAVE | BFS expand concatenated arrays `[...out, ...in]` on every iteration | Replaced with separate `for` loops via `processEdge` closure | `traversal.ts` |
+| R3-N2 | NICE-TO-HAVE | `test_c1_inheritance_cycle_detection` didn't distinguish stack overflow from other errors | Simplified to `!threw` check | `graph-resilience.test.ts` |
+| R3-N3 | NICE-TO-HAVE | `parseAnnotation` failed on non-string values like `maxAttempts = 3` | Extended regex to match unquoted values | `store.ts` |
+
+### Review 4 — Stale Edges, Resource Safety
+
+| # | Severity | Issue | Fix | File(s) |
+|---|----------|-------|-----|---------|
+| R4-S1 | SUGGESTION | Stale resolver-created edges never cleaned up — ghost dependencies persist after file changes | `resolveAllEdges` now deletes all resolver edge kinds (`imports`, `extends`, `implements`, `calls`, `renders`, `hook_calls`, `gql_resolves`, `rest_match`, `type_match`, `injects`) before re-resolving. Added `deleteEdgesByKinds()` method | `resolvers/index.ts`, `store.ts` |
+| R4-S2 | SUGGESTION | Resource leak: error path in source-scan-tools nulled `ctx.graphStore` without closing it | Error handler now closes store before nulling. Open path uses try/catch around `GraphStore.open()` to prevent half-open leak | `source-scan-tools.ts` |
+
+**Design decision:** Review 4 also flagged unbounded MCP string inputs (S1). This was intentionally **not fixed** — Stack Compass's core goal is returning complete, unrestricted traces across mono-repos. Adding input length limits conflicts with this goal.
 
 This order delivers usable tools early: after Phase 1 + 3A, users can search symbols. After Phase 2A + 3B, they get callers/callees/impact within each language. Phase 2B adds the cross-language chain as the final capability layer. Phase 5 adds GenAI framework intelligence incrementally, starting with the Python extractor foundation.
 

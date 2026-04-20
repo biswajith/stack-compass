@@ -113,8 +113,8 @@ export function registerGraphTools(ctx: ServerContext): void {
     'get-symbol-detail',
     'Get full details for a code symbol: kind, file, line range, signature, doc comment, annotations, children, callers, callees, and REST endpoints. Optionally includes source code snippet.',
     {
-      symbolName: z.string().describe('Exact symbol name, e.g. "UserController"'),
-      module: z.string().optional().describe('Module name to disambiguate when multiple symbols share a name'),
+      symbolName: z.string().max(300).describe('Exact symbol name, e.g. "UserController"'),
+      module: z.string().max(200).optional().describe('Module name to disambiguate when multiple symbols share a name'),
       includeSource: z.boolean().optional().describe('Include the source code snippet from disk (default false)'),
     },
     async ({ symbolName, module, includeSource }) => {
