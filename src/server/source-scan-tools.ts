@@ -71,8 +71,9 @@ export function registerSourceScanTools(ctx: ServerContext): void {
           const graphDbDir = path.join(resolvedRoot, '.stack-compass');
           const graphDbPath = path.join(graphDbDir, 'graph.db');
           if (ctx.graphDbPath !== graphDbPath) {
+            const newStore = GraphStore.open(graphDbPath);
             if (ctx.graphStore) { try { ctx.graphStore.close(); } catch { /* ok */ } }
-            ctx.graphStore = GraphStore.open(graphDbPath);
+            ctx.graphStore = newStore;
             ctx.graphDbPath = graphDbPath;
           }
         } catch (err) {

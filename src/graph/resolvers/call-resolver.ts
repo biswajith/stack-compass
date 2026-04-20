@@ -45,7 +45,7 @@ function resolveCallTarget(
     if (sameModule.length === 1) return sameModule[0].id;
   }
 
-  return matches.length > 0 ? matches[0].id : null;
+  return null;
 }
 
 function resolveMethodOnReceiver(

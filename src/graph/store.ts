@@ -121,14 +121,15 @@ export function parseAnnotation(raw: string): { name: string; value: string | nu
     return { name, value: singleMatch[1] };
   }
 
-  // Named parameters: @DgsData(parentType = "Query", field = "users")
-  const paramRegex = /(\w+)\s*=\s*"([^"]*)"/g;
+  // Named parameters: @DgsData(parentType = "Query", field = "users") or @Retry(maxAttempts = 3)
+  const paramRegex = /(\w+)\s*=\s*(?:"([^"]*)"|(\w[\w.]*\w?))/g;
   let match: RegExpExecArray | null;
   let primaryValue: string | null = null;
   let firstValue: string | null = null;
 
   while ((match = paramRegex.exec(paramsStr)) !== null) {
-    const [, key, val] = match;
+    const [, key, quotedVal, unquotedVal] = match;
+    const val = quotedVal ?? unquotedVal;
     if (firstValue === null) firstValue = val;
     if (PRIMARY_VALUE_PARAMS.has(key)) {
       primaryValue = val;
@@ -166,7 +167,7 @@ const GQL_ANNOTATION_MAP: Record<string, { defaultParentType: string; operationT
 
 function extractGqlResolver(
   annotationName: string,
-  value: string | null,
+  rawAnnotation: string,
   methodName: string,
 ): { fieldName: string; parentType: string; operationType: string } | null {
   const config = GQL_ANNOTATION_MAP[annotationName];
@@ -176,16 +177,15 @@ function extractGqlResolver(
   let parentType = config.defaultParentType;
   let operationType = config.operationType;
 
-  if (value) {
-    const fieldMatch = value.match(/field\s*=\s*["']?([^"',)]+)/);
-    if (fieldMatch) fieldName = fieldMatch[1].trim();
+  // Parse from the raw annotation string so named params are visible
+  const fieldMatch = rawAnnotation.match(/field\s*=\s*["']([^"']+)["']/);
+  if (fieldMatch) fieldName = fieldMatch[1].trim();
 
-    const parentMatch = value.match(/(?:parentType|typeName)\s*=\s*["']?([^"',)]+)/);
-    if (parentMatch) {
-      parentType = parentMatch[1].trim();
-      if (parentType === 'Mutation') operationType = 'mutation';
-      else if (parentType === 'Subscription') operationType = 'subscription';
-    }
+  const parentMatch = rawAnnotation.match(/(?:parentType|typeName)\s*=\s*["']([^"']+)["']/);
+  if (parentMatch) {
+    parentType = parentMatch[1].trim();
+    if (parentType === 'Mutation') operationType = 'mutation';
+    else if (parentType === 'Subscription') operationType = 'subscription';
   }
 
   return { fieldName, parentType, operationType };
@@ -200,13 +200,23 @@ function serializeSymbolForHash(s: ExtractedSymbol): string {
 }
 
 function sanitizeFtsQuery(raw: string): string {
-  // Strip FTS5 operators to prevent syntax errors and injection
   const cleaned = raw.replace(/[*:"^(){}[\]]/g, ' ').trim();
   if (!cleaned) return '';
-  // Wrap each token in double quotes to force literal matching
   const tokens = cleaned.split(/\s+/).filter(t => t.length > 0);
   if (tokens.length === 0) return '';
-  return tokens.map(t => `"${t}"`).join(' ');
+  // Preserve OR as an FTS5 operator, quote everything else as literals
+  const parts = tokens.map(t => t === 'OR' ? 'OR' : `"${t}"`);
+  // Strip leading/trailing OR and consecutive ORs to avoid FTS5 syntax errors
+  const safe: string[] = [];
+  for (const p of parts) {
+    if (p === 'OR') {
+      if (safe.length > 0 && safe[safe.length - 1] !== 'OR') safe.push(p);
+    } else {
+      safe.push(p);
+    }
+  }
+  while (safe.length > 0 && safe[safe.length - 1] === 'OR') safe.pop();
+  return safe.join(' ') || '';
 }
 
 // ── GraphStore ───────────────────────────────────────────────────────────
@@ -214,8 +224,22 @@ function sanitizeFtsQuery(raw: string): string {
 export class GraphStore {
   private db: Database.Database;
 
+  // Cached prepared statements for hot-path queries
+  private _getNodeById: Database.Statement;
+  private _getFileById: Database.Statement;
+  private _getEdgesFrom: Database.Statement;
+  private _getEdgesTo: Database.Statement;
+  private _getChildNodes: Database.Statement;
+  private _getAnnotations: Database.Statement;
+
   private constructor(db: Database.Database) {
     this.db = db;
+    this._getNodeById = db.prepare('SELECT * FROM nodes WHERE id = ?');
+    this._getFileById = db.prepare('SELECT * FROM files WHERE id = ?');
+    this._getEdgesFrom = db.prepare('SELECT * FROM edges WHERE source_id = ?');
+    this._getEdgesTo = db.prepare('SELECT * FROM edges WHERE target_id = ?');
+    this._getChildNodes = db.prepare('SELECT * FROM nodes WHERE parent_id = ?');
+    this._getAnnotations = db.prepare('SELECT * FROM annotations WHERE node_id = ?');
   }
 
   static open(dbPath: string): GraphStore {
@@ -305,7 +329,7 @@ export class GraphStore {
   }
 
   getFileById(fileId: number): FileRow | null {
-    return (this.db.prepare('SELECT * FROM files WHERE id = ?').get(fileId) as FileRow) ?? null;
+    return (this._getFileById.get(fileId) as FileRow) ?? null;
   }
 
   deleteFile(fileId: number): void {
@@ -370,11 +394,11 @@ export class GraphStore {
   }
 
   getNodeById(id: number): NodeRow | null {
-    return (this.db.prepare('SELECT * FROM nodes WHERE id = ?').get(id) as NodeRow) ?? null;
+    return (this._getNodeById.get(id) as NodeRow) ?? null;
   }
 
   getChildNodes(parentId: number): NodeRow[] {
-    return this.db.prepare('SELECT * FROM nodes WHERE parent_id = ?').all(parentId) as NodeRow[];
+    return this._getChildNodes.all(parentId) as NodeRow[];
   }
 
   // ── Edges ────────────────────────────────────────────────────────────
@@ -386,11 +410,11 @@ export class GraphStore {
   }
 
   getEdgesFrom(sourceId: number): EdgeRow[] {
-    return this.db.prepare('SELECT * FROM edges WHERE source_id = ?').all(sourceId) as EdgeRow[];
+    return this._getEdgesFrom.all(sourceId) as EdgeRow[];
   }
 
   getEdgesTo(targetId: number): EdgeRow[] {
-    return this.db.prepare('SELECT * FROM edges WHERE target_id = ?').all(targetId) as EdgeRow[];
+    return this._getEdgesTo.all(targetId) as EdgeRow[];
   }
 
   // ── Annotations ──────────────────────────────────────────────────────
@@ -402,7 +426,7 @@ export class GraphStore {
   }
 
   getAnnotations(nodeId: number): AnnotationRow[] {
-    return this.db.prepare('SELECT * FROM annotations WHERE node_id = ?').all(nodeId) as AnnotationRow[];
+    return this._getAnnotations.all(nodeId) as AnnotationRow[];
   }
 
   // ── Node lookups ────────────────────────────────────────────────────
@@ -633,7 +657,7 @@ export class GraphStore {
           this.insertRestEndpoint(nodeId, restInfo.method, fullPath, fileId);
         }
 
-        const gqlInfo = extractGqlResolver(parsed.name, parsed.value, sym.name);
+        const gqlInfo = extractGqlResolver(parsed.name, raw, sym.name);
         if (gqlInfo) {
           this.insertGqlResolver(nodeId, gqlInfo.operationType, gqlInfo.fieldName, gqlInfo.parentType);
         }

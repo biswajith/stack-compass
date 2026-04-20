@@ -15,8 +15,9 @@ function resolveGqlOperationToSchema(store: GraphStore): void {
   const operations = store.getGqlOperations();
 
   for (const op of operations) {
-    const fields: string[] = JSON.parse(op.fields);
-    const opType = op.operation_type; // "query" | "mutation" | "subscription"
+    let fields: string[];
+    try { fields = JSON.parse(op.fields); } catch { continue; }
+    const opType = op.operation_type;
 
     for (const fieldName of fields) {
       // Find GQL schema nodes matching the field name and operation type

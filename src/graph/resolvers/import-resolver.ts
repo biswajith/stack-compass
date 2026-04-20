@@ -5,6 +5,15 @@ export function resolveImportEdges(store: GraphStore): void {
   const allFiles = store.getAllFiles();
   const fileIndex = new Map(allFiles.map(f => [f.path, f]));
 
+  // Pre-build qualified name → node ID index for wildcard import resolution
+  const qualifiedIndex = new Map<string, number>();
+  for (const file of allFiles) {
+    const nodes = store.getTopLevelNodesByFileId(file.id);
+    for (const node of nodes) {
+      if (node.qualified) qualifiedIndex.set(node.qualified, node.id);
+    }
+  }
+
   for (const file of allFiles) {
     const imports = store.getFileImports(file.id);
     if (imports.length === 0) continue;
@@ -16,7 +25,7 @@ export function resolveImportEdges(store: GraphStore): void {
 
     for (const imp of imports) {
       if (imp.endsWith('.*')) {
-        resolveWildcardImport(store, imp, sourceNode.id, allFiles);
+        resolveWildcardImport(store, imp, sourceNode.id, qualifiedIndex);
         continue;
       }
       const resolved = resolveImportTarget(store, imp, file.path, fileIndex);
@@ -98,18 +107,15 @@ function resolveWildcardImport(
   store: GraphStore,
   wildcardImport: string,
   sourceNodeId: number,
-  allFiles: Array<{ id: number; path: string }>,
+  qualifiedIndex: Map<string, number>,
 ): void {
   const packagePrefix = wildcardImport.slice(0, -2);
 
-  for (const file of allFiles) {
-    const nodes = store.getTopLevelNodesByFileId(file.id);
-    for (const node of nodes) {
-      if (node.qualified && node.qualified.startsWith(packagePrefix + '.')) {
-        const remainder = node.qualified.slice(packagePrefix.length + 1);
-        if (!remainder.includes('.')) {
-          store.insertEdge(sourceNodeId, node.id, 'imports', null);
-        }
+  for (const [qualified, nodeId] of qualifiedIndex) {
+    if (qualified.startsWith(packagePrefix + '.')) {
+      const remainder = qualified.slice(packagePrefix.length + 1);
+      if (!remainder.includes('.')) {
+        store.insertEdge(sourceNodeId, nodeId, 'imports', null);
       }
     }
   }

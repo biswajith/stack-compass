@@ -125,11 +125,11 @@ export function buildContext(store: GraphStore, task: string, maxNodes: number =
   const terms = extractTerms(task);
   if (terms.length === 0) return [];
 
-  // Step 2: Seed search via FTS5 (terms are pre-sanitized by extractTerms)
-  const ftsQuery = terms.map(t => `"${t}"`).join(' OR ');
+  // Step 2: Seed search via FTS5
+  const ftsQuery = terms.map(t => t.replace(/-/g, ' ').trim()).filter(t => t.length > 0).join(' OR ');
   let seeds: import('./store.js').SearchResult[];
   try {
-    seeds = store.searchSymbols(ftsQuery, { limit: 10, rawFts: true });
+    seeds = store.searchSymbols(ftsQuery, { limit: 10 });
   } catch {
     return [];
   }
@@ -257,16 +257,18 @@ function bfsExpand(
     const next: number[] = [];
 
     for (const nodeId of frontier) {
-      // Expand in both directions for context
       const outEdges = store.getEdgesFrom(nodeId);
       const inEdges = store.getEdgesTo(nodeId);
 
-      for (const edge of [...outEdges, ...inEdges]) {
+      const processEdge = (edge: import('./store.js').EdgeRow) => {
         const neighborId = edge.source_id === nodeId ? edge.target_id : edge.source_id;
-        if (visited.has(neighborId)) continue;
+        if (visited.has(neighborId)) return;
         visited.set(neighborId, { depth: d, seedRank });
         next.push(neighborId);
-      }
+      };
+
+      for (const edge of outEdges) processEdge(edge);
+      for (const edge of inEdges) processEdge(edge);
     }
 
     frontier = next;

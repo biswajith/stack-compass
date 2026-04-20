@@ -78,11 +78,10 @@ async function test_c1_inheritance_cycle_detection() {
     try {
       const { resolveAllEdges } = await import('../../src/graph/resolvers/index.js');
       resolveAllEdges(store);
-    } catch (e: any) {
-      if (e.message?.includes('Maximum call stack')) threw = true;
-      else threw = true;
+    } catch {
+      threw = true;
     }
-    assert('C1: inheritance cycle does not stack overflow', !threw);
+    assert('C1: inheritance cycle does not throw', !threw);
 
     store.close();
   } finally { cleanup(dbPath); }

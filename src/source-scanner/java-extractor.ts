@@ -252,7 +252,7 @@ function extractRestEndpoint(node: Node, className: string, classPrefix: string 
     for (const mapping of REQUEST_MAPPING_METHODS) {
       if (ann.startsWith(mapping)) {
         const method = mapping === '@RequestMapping'
-          ? extractMappingMethod(ann) ?? 'GET'
+          ? extractMappingMethod(ann) ?? 'ANY'
           : mapping.replace('@', '').replace('Mapping', '').toUpperCase();
 
         const pathMatch = ann.match(/(?:value\s*=\s*|path\s*=\s*)?["']([^"']+)["']/);

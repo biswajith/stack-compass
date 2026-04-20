@@ -41,5 +41,5 @@ function resolveComponent(
     if (sameModule.length === 1) return sameModule[0].id;
   }
 
-  return matches[0].id;
+  return null;
 }
